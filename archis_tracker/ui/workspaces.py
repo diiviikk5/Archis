@@ -11,6 +11,7 @@ import os
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QStackedWidget,
     QScrollArea, QTextBrowser, QSplitter, QSizePolicy, QFrame
@@ -38,25 +39,60 @@ class HomeInterface(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 32, 40, 24)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Scroll area container for smooth responsiveness
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(36, 24, 36, 24)
         layout.setSpacing(16)
 
-        # 1. Hero Header
-        title = TitleLabel("Mission Control & Optical Evaluation")
-        title.setStyleSheet("font-size: 26px; font-weight: 800; color: #f0f6fc;")
-        subtitle = BodyLabel("Autonomous Pointing, Acquisition, and Tracking (PAT) Virtual Ground Station.")
-        subtitle.setStyleSheet("color: #8b949e; font-size: 13px;")
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
-        layout.addSpacing(6)
+        # 1. Branded Hero Header Card with Embedded Logo
+        hero_card = ElevatedCardWidget()
+        h_layout = QHBoxLayout(hero_card)
+        h_layout.setContentsMargins(22, 16, 22, 16)
+        h_layout.setSpacing(18)
+
+        # Embedded Logo
+        assets_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
+        logo_path = os.path.join(assets_dir, "logo.png")
+        if os.path.exists(logo_path):
+            logo_lbl = QLabel()
+            pix = QPixmap(logo_path).scaled(64, 64, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            logo_lbl.setPixmap(pix)
+            h_layout.addWidget(logo_lbl)
+
+        h_text = QVBoxLayout()
+        h_text.setSpacing(4)
+        title = TitleLabel("ARCHIS // OPTICAL TRACKING CONSOLE")
+        title.setStyleSheet("font-size: 22px; font-weight: 800; color: #f0f6fc; letter-spacing: 1px;")
+        subtitle = BodyLabel("Autonomous Pointing, Acquisition, and Tracking (PAT) Ground Station adhering to ISRO FSOC Specifications.")
+        subtitle.setStyleSheet("color: #94a3b8; font-size: 13px;")
+        h_text.addWidget(title)
+        h_text.addWidget(subtitle)
+        h_layout.addLayout(h_text, 1)
+
+        status_col = QVBoxLayout()
+        status_col.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        status_pill = QLabel("GROUND STATION // READY")
+        status_pill.setStyleSheet("color: #38bdf8; background-color: #082032; border: 1px solid #0284c7; border-radius: 6px; padding: 6px 12px; font: 700 11px Consolas, monospace;")
+        status_col.addWidget(status_pill)
+        h_layout.addLayout(status_col)
+
+        layout.addWidget(hero_card)
 
         # 2. Benchmark Compliance Banner Card
         banner = ElevatedCardWidget()
         b_layout = QHBoxLayout(banner)
         b_layout.setContentsMargins(20, 14, 20, 14)
         b_icon = IconWidget(FIF.ACCEPT)
-        b_icon.setFixedSize(30, 30)
+        b_icon.setFixedSize(28, 28)
         b_layout.addWidget(b_icon)
 
         b_text = QVBoxLayout()
@@ -64,16 +100,15 @@ class HomeInterface(QWidget):
         b_title = StrongBodyLabel("ISRO Specification Performance Audit Verified")
         b_title.setStyleSheet("font-size: 14px; font-weight: 700; color: #f0f6fc;")
         b_sub = CaptionLabel("Acquisition <= 2.0s | RMS Error <= 10.0px | Target Loss < 5.0% | Re-acq <= 1.0s | Speed >= 20 FPS")
-        b_sub.setStyleSheet("color: #8b949e; font-size: 11px;")
+        b_sub.setStyleSheet("color: #94a3b8; font-size: 11px;")
         b_text.addWidget(b_title)
         b_text.addWidget(b_sub)
         b_layout.addLayout(b_text, 1)
 
-        status_pill = QLabel("SPEC AUDIT: PASSED")
-        status_pill.setStyleSheet("color: #34d399; background-color: #062319; border: 1px solid #059669; border-radius: 6px; padding: 6px 12px; font: 700 11px Consolas, monospace;")
-        b_layout.addWidget(status_pill)
+        spec_pill = QLabel("SPEC AUDIT: 5/5 PASSED")
+        spec_pill.setStyleSheet("color: #34d399; background-color: #062319; border: 1px solid #059669; border-radius: 6px; padding: 6px 12px; font: 700 11px Consolas, monospace;")
+        b_layout.addWidget(spec_pill)
         layout.addWidget(banner)
-        layout.addSpacing(6)
 
         # 3. Mission Action Cards
         missions = [
@@ -99,15 +134,15 @@ class HomeInterface(QWidget):
             c_layout.setSpacing(16)
 
             icon_widget = IconWidget(m_icon)
-            icon_widget.setFixedSize(32, 32)
+            icon_widget.setFixedSize(30, 30)
             c_layout.addWidget(icon_widget)
 
             t_layout = QVBoxLayout()
-            t_layout.setSpacing(2)
+            t_layout.setSpacing(3)
             card_title = StrongBodyLabel(m_title)
             card_title.setStyleSheet("font-size: 15px; font-weight: 700; color: #f0f6fc;")
             card_desc = BodyLabel(m_desc)
-            card_desc.setStyleSheet("color: #8b949e; font-size: 12px;")
+            card_desc.setStyleSheet("color: #94a3b8; font-size: 12px;")
             card_desc.setWordWrap(True)
             t_layout.addWidget(card_title)
             t_layout.addWidget(card_desc)
@@ -121,6 +156,8 @@ class HomeInterface(QWidget):
             layout.addWidget(card)
 
         layout.addStretch()
+        scroll.setWidget(container)
+        root_layout.addWidget(scroll)
 
     def _start_nominal(self):
         self.window._load_preset("nominal_leo.json")
@@ -344,14 +381,26 @@ class ReviewInterface(QWidget):
             text = label if passed else "FAIL"
             return f"<span style='color: {color}; background-color: {bg}; border: 1px solid {border}; border-radius: 4px; padding: 3px 10px; font-weight: 700; font-family: Consolas;'>{text}</span>"
 
+        logo_uri = f"file:///{self.window.logo_path.replace(os.sep, '/')}" if hasattr(self.window, 'logo_path') and os.path.exists(self.window.logo_path) else ""
+        logo_html = f"<img src='{logo_uri}' width='48' height='48' style='vertical-align: middle;' />" if logo_uri else ""
+
         html = f"""
         <div style='font-family: Segoe UI, sans-serif; color: #e6edf3; line-height: 1.6;'>
-            <h2 style='color: #f0f6fc; border-bottom: 1px solid #1f2937; padding-bottom: 8px; margin-top: 0;'>
-                Autonomous Optical Tracking Performance Audit
-            </h2>
-            <p style='color: #8b949e; font-size: 12px; margin-bottom: 16px;'>
-                Evaluated against ISRO autonomous tracking specifications (Acquisition &le; 2.0s, RMS Error &le; 10.0px, Target Loss &lt; 5.0%, Re-acquisition &le; 1.0s, FPS &ge; 20).
-            </p>
+            <div style='border-bottom: 1px solid #1f2937; padding-bottom: 12px; margin-bottom: 16px;'>
+                <table style='width: 100%; border-collapse: collapse;'>
+                    <tr>
+                        <td style='width: 58px; vertical-align: middle;'>{logo_html}</td>
+                        <td style='vertical-align: middle; padding-left: 8px;'>
+                            <h2 style='color: #f0f6fc; margin: 0; font-size: 20px; font-weight: 700;'>
+                                ARCHIS // Optical Tracking Performance Audit
+                            </h2>
+                            <p style='color: #8b949e; font-size: 12px; margin: 4px 0 0 0;'>
+                                Evaluated against ISRO autonomous tracking specifications (Acquisition &le; 2.0s, RMS &le; 10.0px, Loss &lt; 5.0%, Re-acq &le; 1.0s, FPS &ge; 20).
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </div>
 
             <table style='width: 100%; border-collapse: collapse; margin-bottom: 20px;'>
                 <tr style='border-bottom: 1px solid #1f2937;'>

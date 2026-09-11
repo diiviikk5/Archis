@@ -15,8 +15,6 @@ DARK_THEME_QSS = """
 QMainWindow, QDialog {
     background-color: #0b0f14;
     color: #f0f6fc;
-    font-family: "Segoe UI", -apple-system, sans-serif;
-    font-size: 13px;
 }
 
 QSplitter::handle {
@@ -190,7 +188,7 @@ QTextBrowser#reviewDocument {
     color: #e6edf3;
     padding: 24px;
     font-size: 13px;
-    font-family: "Segoe UI", -apple-system, sans-serif;
+    font-family: "Segoe UI", sans-serif;
 }
 """
 

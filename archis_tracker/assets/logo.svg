@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <radialGradient id="bgGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#0c192c" />
+      <stop offset="70%" stop-color="#070d18" />
+      <stop offset="100%" stop-color="#02060d" />
+    </radialGradient>
+    <radialGradient id="laserGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="30%" stop-color="#38bdf8" />
+      <stop offset="70%" stop-color="rgba(0,164,239,0.7)" />
+      <stop offset="100%" stop-color="rgba(0,164,239,0)" />
+    </radialGradient>
+  </defs>
+  <!-- Outer Shield Ring -->
+  <circle cx="128" cy="128" r="116" fill="url(#bgGrad)" stroke="#00a4ef" stroke-width="3" />
+  <!-- Reticle Rings -->
+  <circle cx="128" cy="128" r="72" fill="none" stroke="rgba(0,164,239,0.35)" stroke-width="1.5" stroke-dasharray="6,4" />
+  <circle cx="128" cy="128" r="42" fill="none" stroke="rgba(0,164,239,0.5)" stroke-width="1.5" />
+  <!-- Boresight Crosshairs -->
+  <line x1="128" y1="24" x2="128" y2="80" stroke="rgba(0,164,239,0.6)" stroke-width="2" />
+  <line x1="128" y1="176" x2="128" y2="232" stroke="rgba(0,164,239,0.6)" stroke-width="2" />
+  <line x1="24" y1="128" x2="80" y2="128" stroke="rgba(0,164,239,0.6)" stroke-width="2" />
+  <line x1="176" y1="128" x2="232" y2="128" stroke="rgba(0,164,239,0.6)" stroke-width="2" />
+  <!-- Orbital Arc -->
+  <path d="M 36,150 A 100,75 0 0,1 220,106" fill="none" stroke="#34d399" stroke-width="2.5" stroke-linecap="round" />
+  <circle cx="220" cy="106" r="5" fill="#34d399" />
+  <!-- Central Laser Spot Glow -->
+  <circle cx="128" cy="128" r="28" fill="url(#laserGrad)" />
+  <circle cx="128" cy="128" r="6" fill="#ffffff" />
+</svg>

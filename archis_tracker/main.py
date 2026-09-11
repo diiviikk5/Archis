@@ -109,14 +109,32 @@ def main():
             sys.exit(0 if success else 1)
             
         # Launch PyQt6 GUI Application
+        import ctypes
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Archis.FSOC.OpticalTracker.2.0")
+        except Exception:
+            pass
+
         from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtGui import QFont, QIcon
         from PyQt6.QtCore import Qt
         from archis_tracker.ui.main_window import MainWindow
-        
+
         app = QApplication(sys.argv)
         app.setApplicationName("Archis Optical Tracker")
         app.setOrganizationName("Archis FSOC")
-        
+
+        # Crisp, anti-aliased Segoe UI typography across the desktop environment
+        app_font = QFont("Segoe UI", 10)
+        app_font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+        app.setFont(app_font)
+
+        # Set application and taskbar icon
+        assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+        logo_path = os.path.join(assets_dir, "logo.png")
+        if os.path.exists(logo_path):
+            app.setWindowIcon(QIcon(logo_path))
+
         window = MainWindow()
         window.show()
         

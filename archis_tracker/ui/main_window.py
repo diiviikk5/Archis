@@ -8,11 +8,11 @@ import os
 import time
 
 from PyQt6.QtCore import QSettings, QStandardPaths, Qt, QTimer, QUrl
-from PyQt6.QtGui import QAction, QDesktopServices
+from PyQt6.QtGui import QAction, QDesktopServices, QIcon
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from qfluentwidgets import (
-    MSFluentWindow, FluentIcon as FIF, NavigationItemPosition,
-    InfoBar, InfoBarPosition,
+    FluentWindow, FluentIcon as FIF, NavigationItemPosition,
+    InfoBar, InfoBarPosition, NavigationAvatarWidget,
 )
 
 from ..core.config import TrackingState
@@ -27,19 +27,32 @@ from .workspaces import (
 )
 
 
-class MainWindow(MSFluentWindow):
+class MainWindow(FluentWindow):
     def __init__(self):
         super().__init__()
         init_fluent_theme()
         self.setWindowTitle("Archis Optical Tracking Console")
-        self.resize(1480, 920)
-        self.setMinimumSize(1120, 720)
+        self.resize(1500, 940)
+        self.setMinimumSize(1160, 740)
         self.setStyleSheet(DARK_THEME_QSS)
+
+        # Assets & window icon
+        assets_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
+        self.logo_path = os.path.join(assets_dir, "logo.png")
+        if os.path.exists(self.logo_path):
+            self.setWindowIcon(QIcon(self.logo_path))
+
         self.settings = QSettings("Archis", "OpticalTracker")
         self.tracker = TrackingSystem()
         self.is_running = False
         self.video_source = None
         self.was_locked = False
+
+        # Sidebar navigation configuration - spacious, unclipped, expandable
+        self.navigationInterface.setMenuButtonVisible(True)
+        self.navigationInterface.setReturnButtonVisible(False)
+        self.navigationInterface.setExpandWidth(250)
+        self.navigationInterface.setMinimumExpandWidth(220)
 
         reports_root = os.path.join(
             QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation),
@@ -70,11 +83,11 @@ class MainWindow(MSFluentWindow):
         self.source_button = self.tracking_interface.source_button
         self.engine_badge = self.tracking_interface.engine_badge
 
-        # Register sub-interfaces with MSFluentWindow
-        self.addSubInterface(self.home_interface, FIF.HOME, "Home")
+        # Register sub-interfaces with FluentWindow
+        self.addSubInterface(self.home_interface, FIF.HOME, "Home Operations")
         self.addSubInterface(self.setup_interface, FIF.SETTING, "Mission Setup")
-        self.addSubInterface(self.tracking_interface, FIF.CAMERA, "Live Tracking")
-        self.addSubInterface(self.review_interface, FIF.DOCUMENT, "Run Review")
+        self.addSubInterface(self.tracking_interface, FIF.CAMERA, "Live Optical Tracking")
+        self.addSubInterface(self.review_interface, FIF.DOCUMENT, "Review & Audit")
 
         # Bottom navigation utility items
         self.navigationInterface.addItem(
@@ -91,6 +104,18 @@ class MainWindow(MSFluentWindow):
             onClick=self._open_reports,
             position=NavigationItemPosition.BOTTOM,
         )
+
+        # Station identity avatar badge in navigation pane
+        if os.path.exists(self.logo_path):
+            self.station_avatar = NavigationAvatarWidget("ARCHIS FSOC Station", self.logo_path, self)
+            self.navigationInterface.addWidget(
+                routeKey="station_avatar",
+                widget=self.station_avatar,
+                position=NavigationItemPosition.BOTTOM,
+            )
+
+        # Expand navigation sidebar by default so typography is open and clear
+        self.navigationInterface.expand(useAni=False)
 
         self._build_shortcuts()
 

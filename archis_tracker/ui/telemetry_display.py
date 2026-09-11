@@ -35,26 +35,26 @@ class TelemetryDashboard(QWidget):
 
     def _create_fluent_card(self, title: str, main_val: str, sub_val: str, accent_color: str, badge_text: str):
         card = ElevatedCardWidget()
-        card.setMinimumHeight(76)
+        card.setMinimumHeight(86)
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(14, 10, 14, 10)
-        layout.setSpacing(2)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(4)
 
         top_row = QHBoxLayout()
         lbl_title = QLabel(title)
-        lbl_title.setStyleSheet("color: #94a3b8; font-size: 10px; font-weight: 700; letter-spacing: 0.8px;")
+        lbl_title.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700; letter-spacing: 0.8px;")
         top_row.addWidget(lbl_title)
         top_row.addStretch()
 
         badge = QLabel(badge_text)
-        badge.setStyleSheet("color: #64748b; background-color: #0f172a; border: 1px solid #1e293b; border-radius: 4px; padding: 2px 6px; font: 600 9px Consolas, monospace;")
+        badge.setStyleSheet("color: #94a3b8; background-color: #0f172a; border: 1px solid #1e293b; border-radius: 4px; padding: 3px 8px; font: 700 10px Consolas, monospace;")
         top_row.addWidget(badge)
 
         lbl_val = QLabel(main_val)
-        lbl_val.setStyleSheet(f"color: {accent_color}; font-size: 20px; font-weight: 800; font-family: Consolas, monospace;")
+        lbl_val.setStyleSheet(f"color: {accent_color}; font-size: 22px; font-weight: 800; font-family: Consolas, monospace;")
 
         lbl_sub = QLabel(sub_val)
-        lbl_sub.setStyleSheet("color: #64748b; font-size: 11px; font-family: Consolas, monospace;")
+        lbl_sub.setStyleSheet("color: #94a3b8; font-size: 11px; font-family: Consolas, monospace;")
 
         layout.addLayout(top_row)
         layout.addWidget(lbl_val)
