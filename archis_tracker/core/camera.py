@@ -17,7 +17,8 @@ class VirtualCamera:
         # Two-Axis Mechanical Gimbal Assembly
         self.gimbal = GimbalPedestal(
             max_rate_deg_s=self.config.max_pan_speed_deg_s,
-            max_accel_deg_s2=25.0
+            max_accel_deg_s2=25.0,
+            max_tilt_rate_deg_s=self.config.max_tilt_speed_deg_s,
         )
         
         # Viewport dimensions
@@ -49,6 +50,18 @@ class VirtualCamera:
         self.jitter_offset_y: float = 0.0
         self.platform_offset_x: float = 0.0
         self.platform_offset_y: float = 0.0
+
+    def set_rate_limits(self, pan_deg_s: Optional[float] = None,
+                        tilt_deg_s: Optional[float] = None):
+        """Update configuration and the live mechanical rate clamps."""
+        if pan_deg_s is not None:
+            self.config.max_pan_speed_deg_s = float(pan_deg_s)
+        if tilt_deg_s is not None:
+            self.config.max_tilt_speed_deg_s = float(tilt_deg_s)
+        self.max_pan_speed_deg_s = self.config.max_pan_speed_deg_s
+        self.max_tilt_speed_deg_s = self.config.max_tilt_speed_deg_s
+        self.gimbal.max_rate = self.max_pan_speed_deg_s
+        self.gimbal.max_tilt_rate = self.max_tilt_speed_deg_s
 
     def reset(self):
         self.gimbal.reset()

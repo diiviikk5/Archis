@@ -8,9 +8,11 @@ from typing import Tuple, Optional
 
 
 class GimbalPedestal:
-    def __init__(self, max_rate_deg_s: float = 5.0, max_accel_deg_s2: float = 25.0):
+    def __init__(self, max_rate_deg_s: float = 5.0, max_accel_deg_s2: float = 25.0,
+                 max_tilt_rate_deg_s: Optional[float] = None):
         # Kinematic limits
-        self.max_rate = max_rate_deg_s        # 5.0 to 10.0 °/s
+        self.max_rate = max_rate_deg_s        # Backward-compatible pan rate
+        self.max_tilt_rate = max_tilt_rate_deg_s or max_rate_deg_s
         self.max_accel = max_accel_deg_s2    # 25.0 °/s²
         
         # Physical angles (degrees)
@@ -48,7 +50,7 @@ class GimbalPedestal:
         """
         # 1. Commanded rate clamping (5-10 °/s specification)
         target_pan_vel = np.clip(commanded_pan_vel, -self.max_rate, self.max_rate)
-        target_tilt_vel = np.clip(commanded_tilt_vel, -self.max_rate, self.max_rate)
+        target_tilt_vel = np.clip(commanded_tilt_vel, -self.max_tilt_rate, self.max_tilt_rate)
         
         # 2. Acceleration limits (finite motor torque)
         delta_v_pan = target_pan_vel - self.pan_vel_deg_s

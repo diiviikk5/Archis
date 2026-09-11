@@ -17,6 +17,7 @@ from .detector import BeaconDetector, DetectionResult
 from .kalman_filter import KalmanFilter2D
 from .controller import GimbalController
 from .telemetry import TelemetryEngine
+from .presets import load_and_apply_preset, LoadedPreset
 
 
 class TrackingSystem:
@@ -112,6 +113,9 @@ class TrackingSystem:
 
     def set_agc_mode(self, mode: AGCMode):
         self.detector.config.agc_mode = mode
+
+    def load_preset(self, path: str) -> LoadedPreset:
+        return load_and_apply_preset(self, path)
 
     def step(self, dt: float) -> DetectionResult:
         start_t = time.perf_counter()

@@ -12,6 +12,7 @@ import json
 import time
 
 from ..core.tracker import TrackingSystem
+from ..core.presets import PresetError
 from .style import DARK_THEME_QSS
 from .viewport import ViewportWidget
 from .minimap import MinimapWidget
@@ -122,11 +123,12 @@ class MainWindow(QMainWindow):
             return
             
         try:
-            with open(path, "r") as f:
-                data = json.load(f)
-            self.status_bar.showMessage(f"LOADED MISSION SCENARIO: {data.get('name', preset_filename)}", 4000)
-        except Exception as e:
-            self.status_bar.showMessage(f"Error loading preset: {e}", 3000)
+            preset = self.tracker.load_preset(path)
+            self.control_panel.refresh_from_tracker()
+            self.status_bar.showMessage(f"LOADED MISSION SCENARIO: {preset.name}", 4000)
+        except PresetError as exc:
+            QMessageBox.warning(self, "Preset could not be loaded", str(exc))
+            self.status_bar.showMessage(f"Preset error: {exc}", 5000)
 
     def _simulation_tick(self):
         """Executes one real-time tracking cycle and updates UI widgets."""

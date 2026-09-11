@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
                              QLabel, QSlider, QComboBox, QCheckBox, QPushButton, 
                              QTabWidget, QSpinBox, QDoubleSpinBox, QGroupBox, QFileDialog, QMessageBox)
 from PyQt6.QtCore import Qt, pyqtSignal
+import numpy as np
 from ..core.config import (TargetShape, MotionTrajectory, AtmosphericCondition, 
                            PlatformMotionType, TrackingAlgorithm, AGCMode)
 from ..core.tracker import TrackingSystem
@@ -327,11 +328,11 @@ class ControlPanelWidget(QWidget):
         l_p = QVBoxLayout(box_p)
         
         presets = [
-            ("01. Nominal Clear Sky (LEO Optical Pass)", "01_nominal_clear_sky.json"),
-            ("02. High Vibration (Airborne Pod Jitter)", "02_high_vibration_airborne.json"),
-            ("03. Dense Fog Atmospheric Inversion", "03_dense_fog_obscuration.json"),
-            ("04. Low Light Night Intercept", "04_low_light_night.json"),
-            ("05. High Speed Evasive Maneuvers", "05_high_speed_evasive.json")
+            ("Nominal Clear Sky (LEO Optical Pass)", "nominal_leo.json"),
+            ("Platform Vibration Shock", "platform_jitter.json"),
+            ("Heavy Atmospheric Turbulence", "heavy_turbulence.json"),
+            ("Cloud Dropout & Re-acquisition", "cloud_dropout.json"),
+            ("High Speed Evasive Maneuvers", "evasive_target.json")
         ]
         
         for name, filename in presets:
@@ -398,14 +399,31 @@ class ControlPanelWidget(QWidget):
     def _on_pan_spd_changed(self, val: int):
         spd = val / 10.0
         self.lbl_pan_spd.setText(f"Max Pan Speed: {spd:.1f} °/s")
-        self.tracker.cam_config.max_pan_speed_deg_s = spd
-        self.tracker.camera.max_pan_speed_deg_s = spd
+        self.tracker.camera.set_rate_limits(pan_deg_s=spd)
 
     def _on_tilt_spd_changed(self, val: int):
         spd = val / 10.0
         self.lbl_tilt_spd.setText(f"Max Tilt Speed: {spd:.1f} °/s")
-        self.tracker.cam_config.max_tilt_speed_deg_s = spd
-        self.tracker.camera.max_tilt_speed_deg_s = spd
+        self.tracker.camera.set_rate_limits(tilt_deg_s=spd)
+
+    def refresh_from_tracker(self):
+        """Synchronize visible controls after loading a mission preset."""
+        target = self.tracker.primary_target
+        disturbance = self.tracker.disturb_config
+        self.combo_shape.setCurrentText(target.shape.value)
+        self.slider_size.setValue(target.size)
+        self.combo_traj.setCurrentText(target.trajectory.value)
+        self.slider_spd.setValue(int(target.speed))
+        self.slider_pan_spd.setValue(round(self.tracker.cam_config.max_pan_speed_deg_s * 10))
+        self.slider_tilt_spd.setValue(round(self.tracker.cam_config.max_tilt_speed_deg_s * 10))
+        self.combo_atm.setCurrentText(disturbance.atmospheric_condition.value)
+        self.slider_sev.setValue(round(disturbance.atmospheric_severity * 100))
+        self.chk_sp.setChecked(disturbance.enable_salt_pepper)
+        self.chk_gauss.setChecked(disturbance.enable_gaussian_noise)
+        self.chk_poisson.setChecked(disturbance.enable_poisson_noise)
+        self.chk_jit.setChecked(disturbance.enable_camera_jitter)
+        self.chk_plat.setChecked(disturbance.enable_platform_motion)
+        self.combo_plat.setCurrentText(disturbance.platform_motion_type.value)
 
     def _on_auto_toggled(self, checked: bool):
         self.tracker.is_autonomous_tracking = checked
