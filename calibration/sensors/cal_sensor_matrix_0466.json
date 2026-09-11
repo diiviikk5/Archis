@@ -1,0 +1,16 @@
+{
+  "matrix_entry": 466,
+  "sensor_id": "FPA_640x480_SN0466",
+  "focal_plane_array": {
+    "pixel_pitch_um": 15.0,
+    "quantum_efficiency": 0.88,
+    "dark_current_e_s": 0.12,
+    "readout_noise_e": 1.14
+  },
+  "boresight_calibration": {
+    "offset_x_px": 0.00,
+    "offset_y_px": 0.00,
+    "angular_bias_urad": 0.02
+  },
+  "audit_status": "VERIFIED_COMPLIANT [PASS]"
+}
