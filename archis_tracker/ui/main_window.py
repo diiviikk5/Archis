@@ -5,6 +5,7 @@ Integrates Viewport, Minimap, Telemetry Dashboard, PyQTGraph Charts, and Control
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QSplitter, QStatusBar, QToolBar, QLabel, QMessageBox)
 from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtCore import QStandardPaths
 from PyQt6.QtGui import QIcon, QAction
 import sys
 import os
@@ -30,6 +31,11 @@ class MainWindow(QMainWindow):
         
         # 1. Initialize Tracking Engine
         self.tracker = TrackingSystem()
+        reports_root = os.path.join(
+            QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation),
+            "Archis Tracker", "Reports"
+        )
+        self.session_dir = self.tracker.telemetry.start_session(reports_root)
         
         # 2. Build UI Layout
         central_widget = QWidget()
@@ -88,6 +94,12 @@ class MainWindow(QMainWindow):
         self.sim_timer.timeout.connect(self._simulation_tick)
         self.last_tick_time = time.perf_counter()
         self.sim_timer.start(int(1000.0 / self.tracker.cam_config.update_rate_hz))
+
+    def closeEvent(self, event):
+        self.sim_timer.stop()
+        self.tracker.telemetry.stop_logging()
+        self.tracker.telemetry.finish_session()
+        event.accept()
 
     def _on_viewport_designated(self, vx: float, vy: float):
         wx, wy = self.tracker.camera.viewport_to_world(vx, vy)
