@@ -16,8 +16,11 @@ def build():
         "--clean",
         "--collect-all=pyqtgraph",
         "--collect-all=PyQt6",
+        "--collect-all=archis_tracker",
+        "--hidden-import=scipy",
         "--hidden-import=scipy.optimize",
         "--hidden-import=cv2",
+        "--add-data=archis_tracker/presets;archis_tracker/presets",
         "archis_tracker/main.py"
     ]
     res = subprocess.run(cmd)

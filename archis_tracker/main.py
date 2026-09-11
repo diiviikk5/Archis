@@ -8,7 +8,10 @@ import argparse
 import time
 
 # Ensure package directory is in sys.path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if hasattr(sys, '_MEIPASS'):
+    sys.path.insert(0, sys._MEIPASS)
+else:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from archis_tracker.core.tracker import TrackingSystem
 from archis_tracker.core.config import (TargetShape, MotionTrajectory, 
@@ -82,29 +85,45 @@ def run_benchmark(duration_s: float = 10.0):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Archis FSOC Autonomous Optical Tracker")
-    parser.add_argument("--benchmark", action="store_true", help="Run automated verification benchmark")
-    parser.add_argument("--duration", type=float, default=8.0, help="Benchmark duration in seconds")
-    parser.add_argument("--headless", action="store_true", help="Run headless simulation loop without GUI")
-    args = parser.parse_args()
-    
-    if args.benchmark or args.headless:
-        success = run_benchmark(duration_s=args.duration)
-        sys.exit(0 if success else 1)
+    import traceback
+    log_path = os.path.join(os.path.expanduser("~"), "archis_crash.log")
+    try:
+        with open(log_path, "a") as f:
+            f.write(f"\n[{time.ctime()}] Starting Archis Tracker. MEIPASS: {getattr(sys, '_MEIPASS', 'None')}\n")
+            
+        parser = argparse.ArgumentParser(description="Archis FSOC Autonomous Optical Tracker")
+        parser.add_argument("--benchmark", action="store_true", help="Run automated verification benchmark")
+        parser.add_argument("--duration", type=float, default=8.0, help="Benchmark duration in seconds")
+        parser.add_argument("--headless", action="store_true", help="Run headless simulation loop without GUI")
+        args = parser.parse_args()
         
-    # Launch PyQt6 GUI Application
-    from PyQt6.QtWidgets import QApplication
-    from PyQt6.QtCore import Qt
-    from archis_tracker.ui.main_window import MainWindow
-    
-    app = QApplication(sys.argv)
-    app.setApplicationName("Archis Optical Tracker")
-    app.setOrganizationName("Archis FSOC")
-    
-    window = MainWindow()
-    window.show()
-    
-    sys.exit(app.exec())
+        if args.benchmark or args.headless:
+            success = run_benchmark(duration_s=args.duration)
+            sys.exit(0 if success else 1)
+            
+        # Launch PyQt6 GUI Application
+        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtCore import Qt
+        from archis_tracker.ui.main_window import MainWindow
+        
+        app = QApplication(sys.argv)
+        app.setApplicationName("Archis Optical Tracker")
+        app.setOrganizationName("Archis FSOC")
+        
+        window = MainWindow()
+        window.show()
+        
+        with open(log_path, "a") as f:
+            f.write(f"[{time.ctime()}] Window displayed, entering event loop...\n")
+            
+        code = app.exec()
+        with open(log_path, "a") as f:
+            f.write(f"[{time.ctime()}] app.exec() exited with code: {code}\n")
+        sys.exit(code)
+    except Exception as e:
+        with open(log_path, "a") as f:
+            f.write(f"[{time.ctime()}] CRITICAL EXCEPTION:\n{traceback.format_exc()}\n")
+        raise
 
 
 if __name__ == "__main__":
