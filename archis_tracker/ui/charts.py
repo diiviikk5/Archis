@@ -65,6 +65,11 @@ class TelemetryChartsWidget(QWidget):
         self.curve_fft = self.plot_fft.plot(pen=pg.mkPen(color='#ec4899', width=1.5), fillLevel=-40, fillBrush=pg.mkBrush(236, 72, 153, 50))
         self.tabs.addTab(self.plot_fft, "Jitter Spectrum (FFT)")
 
+    def clear_data(self):
+        for curve in (self.curve_error, self.curve_pan, self.curve_tilt,
+                      self.curve_fps, self.curve_speed, self.curve_fft):
+            curve.clear()
+
     def update_data(self, times: Deque[float], errors: Deque[float],
                     pans: Deque[float], tilts: Deque[float],
                     fps_list: Deque[float], speeds: Deque[float]):

@@ -36,8 +36,9 @@ class TelemetryDashboard(QWidget):
     def _create_card(self, title: str, main_val: str, sub_val: str, accent_color: str):
         frame = QFrame()
         frame.setObjectName("cardFrame")
+        frame.setMinimumHeight(72)
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(2)
         
         lbl_title = QLabel(title)
