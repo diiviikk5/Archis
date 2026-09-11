@@ -1,4 +1,4 @@
-﻿"""
+"""
 Archis Optical Tracker - Camera Viewport Display Widget
 Renders 640x480 monochrome FPA feed with interactive Click-to-Designate,
 dynamic track gate, and MIL-STD tactical reticle HUD.
@@ -200,36 +200,74 @@ class ViewportWidget(QWidget):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(QPointF(pred_sx, pred_sy), 6.0 * scale, 6.0 * scale)
 
-        # 7. Aerospace HUD Overlays
+        # 7. Aerospace Glassmorphic HUD Overlays
         if self.show_hud_text:
             painter.setFont(QFont("Consolas", 9))
             tx = offset_x + 12
             ty = offset_y + 20
-            
-            if self.state == TrackingState.TRACKING:
-                state_color = QColor(74, 222, 128)
-            elif self.state == TrackingState.DEAD_RECKONING:
-                state_color = QColor(250, 204, 21)
-            elif self.state == TrackingState.SEARCHING:
-                state_color = QColor(249, 115, 22)
-            else:
-                state_color = QColor(244, 63, 94)
-                
-            painter.setPen(state_color)
-            painter.drawText(int(tx), int(ty), f"STATUS: [{self.state.value}]")
-            
-            painter.setPen(QColor(203, 213, 225))
-            painter.drawText(int(tx), int(ty + 16), f"ERROR:   {self.error_px:5.2f} px  (RMS: {self.rms_error_px:4.2f} px)")
-            painter.drawText(int(tx), int(ty + 32), f"GIMBAL:  PAN {self.pan_deg:+6.2f}°  TILT {self.tilt_deg:+6.2f}°")
-            painter.drawText(int(tx), int(ty + 48), f"SNR:     {self.snr_db:4.1f} dB  |  ALGO: {self.algo_name}")
-            
-            rx = offset_x + render_w - 140
-            painter.drawText(int(rx), int(ty), f"LOOP:   {self.fps:4.1f} FPS")
-            painter.drawText(int(rx), int(ty + 16), f"LATENCY:{self.latency_ms:4.1f} ms")
-            painter.drawText(int(rx), int(ty + 32), "FOV:    4.0°x3.0°")
 
-            # Interaction Hint
-            painter.setFont(QFont("Segoe UI", 8))
-            painter.setPen(QColor(148, 163, 184, 160))
-            painter.drawText(int(offset_x + 12), int(offset_y + render_h - 12), 
-                             "[LEFT CLICK]: Designate Target Lock   |   [RIGHT CLICK]: Drop Decoy")
+            # State-specific color
+            if self.state == TrackingState.TRACKING:
+                state_color = QColor(52, 211, 153)   # Emerald
+                state_bg = QColor(6, 35, 25, 210)
+                state_border = QColor(5, 150, 105, 180)
+            elif self.state == TrackingState.DEAD_RECKONING:
+                state_color = QColor(245, 158, 11)  # Amber
+                state_bg = QColor(38, 27, 10, 210)
+                state_border = QColor(217, 119, 6, 180)
+            elif self.state == TrackingState.SEARCHING:
+                state_color = QColor(56, 189, 248)  # Cyan
+                state_bg = QColor(8, 32, 50, 210)
+                state_border = QColor(2, 132, 199, 180)
+            else:
+                state_color = QColor(248, 113, 113)  # Rose
+                state_bg = QColor(43, 16, 20, 210)
+                state_border = QColor(220, 38, 38, 180)
+
+            # Left telemetry glass card
+            left_card_w = 310.0
+            left_card_h = 82.0
+            painter.setPen(QPen(state_border, 1.0))
+            painter.setBrush(QBrush(state_bg))
+            painter.drawRoundedRect(QRectF(tx - 4, ty - 12, left_card_w, left_card_h), 6.0, 6.0)
+
+            painter.setPen(state_color)
+            painter.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
+            painter.drawText(int(tx + 6), int(ty + 6), f"PAT STATE: [{self.state.value}]")
+
+            painter.setFont(QFont("Consolas", 9))
+            painter.setPen(QColor(226, 232, 240))
+            painter.drawText(int(tx + 6), int(ty + 24), f"BORESIGHT ERR: {self.error_px:5.2f} px  (RMS: {self.rms_error_px:4.2f} px)")
+            painter.drawText(int(tx + 6), int(ty + 42), f"PEDESTAL AZ/EL: PAN {self.pan_deg:+6.2f}° | TILT {self.tilt_deg:+6.2f}°")
+            painter.drawText(int(tx + 6), int(ty + 60), f"ESTIMATOR SNR:  {self.snr_db:4.1f} dB  | CV: {self.algo_name}")
+
+            # Right optical parameters glass card
+            right_card_w = 148.0
+            right_card_h = 64.0
+            rx = offset_x + render_w - right_card_w - 8
+            painter.setPen(QPen(QColor(30, 41, 59, 200), 1.0))
+            painter.setBrush(QBrush(QColor(11, 15, 23, 220)))
+            painter.drawRoundedRect(QRectF(rx - 4, ty - 12, right_card_w, right_card_h), 6.0, 6.0)
+
+            painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
+            painter.setPen(QColor(56, 189, 248))
+            painter.drawText(int(rx + 6), int(ty + 6), f"CYCLE:  {self.fps:4.1f} FPS")
+            painter.setFont(QFont("Consolas", 9))
+            painter.setPen(QColor(203, 213, 225))
+            painter.drawText(int(rx + 6), int(ty + 24), f"LATENCY:{self.latency_ms:4.1f} ms")
+            painter.drawText(int(rx + 6), int(ty + 42), "OPTICS: 4.0°x3.0°")
+
+            # Bottom interaction hint pill
+            pill_w = render_w - 24
+            pill_h = 24.0
+            px = offset_x + 12
+            py = offset_y + render_h - 32
+            painter.setPen(QPen(QColor(30, 41, 59, 180), 1.0))
+            painter.setBrush(QBrush(QColor(11, 15, 23, 220)))
+            painter.drawRoundedRect(QRectF(px, py, pill_w, pill_h), 4.0, 4.0)
+
+            painter.setFont(QFont("Segoe UI", 9))
+            painter.setPen(QColor(148, 163, 184))
+            painter.drawText(QRectF(px, py, pill_w, pill_h), Qt.AlignmentFlag.AlignCenter,
+                             "[LEFT CLICK] Designate Optical Beacon Target   |   [RIGHT CLICK] Inject Decoy Flare")
+
