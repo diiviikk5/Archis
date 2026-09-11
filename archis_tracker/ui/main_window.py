@@ -22,6 +22,7 @@ from .onboarding import OnboardingDialog
 from .style import DARK_THEME_QSS
 from .telemetry_display import TelemetryDashboard
 from .viewport import ViewportWidget
+from .workspaces import DesktopWorkspaces
 
 
 class MainWindow(QMainWindow):
@@ -59,7 +60,9 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         root.addWidget(self._build_header())
-        root.addWidget(self._build_phase_strip())
+        self.phase_strip = self._build_phase_strip()
+        self.phase_strip.setParent(self)
+        self.phase_strip.hide()
 
         workspace = QSplitter(Qt.Orientation.Horizontal)
         workspace.setObjectName("workspaceSplitter")
@@ -71,7 +74,8 @@ class MainWindow(QMainWindow):
         self.control_panel.preset_selected_signal.connect(self._load_preset)
         self.control_panel.start_log_signal.connect(self._start_csv_logging)
         self.control_panel.stop_log_signal.connect(self._stop_csv_logging)
-        workspace.addWidget(self.control_panel)
+        self.control_panel.setParent(self)
+        self.control_panel.hide()
 
         center = QWidget()
         center.setObjectName("centerWorkspace")
@@ -101,10 +105,8 @@ class MainWindow(QMainWindow):
         center_layout.addWidget(optical_row, 5)
         self.charts = TelemetryChartsWidget()
         center_layout.addWidget(self.charts, 2)
-        workspace.addWidget(center)
-        workspace.setStretchFactor(1, 1)
-        workspace.setSizes([320, 1160])
-        root.addWidget(workspace, 1)
+        self.desktop = DesktopWorkspaces(self, center)
+        root.addWidget(self.desktop, 1)
 
         self.status_bar = QStatusBar()
         self.status_bar.setSizeGripEnabled(False)
@@ -135,7 +137,7 @@ class MainWindow(QMainWindow):
         divider.setFrameShape(QFrame.Shape.VLine)
         divider.setObjectName("headerDivider")
         layout.addWidget(divider)
-        terminal = QLabel("VIRTUAL FSOC TERMINAL  /  CAM-01")
+        terminal = QLabel("Optical Tracking")
         terminal.setObjectName("terminalLabel")
         layout.addWidget(terminal)
         layout.addStretch()
@@ -146,7 +148,7 @@ class MainWindow(QMainWindow):
         self.source_button.setObjectName("secondaryButton")
         self.source_button.clicked.connect(self._open_video)
         layout.addWidget(self.source_button)
-        for text, callback in (("Quick start", self._show_onboarding), ("Open reports", self._open_reports)):
+        for text, callback in ():
             button = QPushButton(text)
             button.setObjectName("secondaryButton")
             button.clicked.connect(callback)
@@ -195,7 +197,12 @@ class MainWindow(QMainWindow):
         self._set_running(not self.is_running)
 
     def _set_running(self, running: bool):
+        if running and self.tracker.telemetry.session_dir is None:
+            self.tracker.telemetry.reset()
+            self.session_dir = self.tracker.telemetry.start_session(self.session_dir.parent)
         self.is_running = running
+        if running:
+            self.desktop.navigate(2)
         self.last_tick_time = time.perf_counter()
         self._update_run_state()
         message = "Acquisition and tracking are running." if running else "Run paused. Configuration remains editable."
@@ -214,7 +221,9 @@ class MainWindow(QMainWindow):
 
     def _reset_run(self):
         self._set_running(False)
+        self.tracker.telemetry.finish_session()
         self.tracker.reset()
+        self.session_dir = self.tracker.telemetry.start_session(self.session_dir.parent)
         if self.video_source:
             self.video_source.rewind()
         self.charts.clear_data()
@@ -237,7 +246,12 @@ class MainWindow(QMainWindow):
         if self.video_source:
             self.video_source.close()
         self.video_source = source
+        self._set_running(False)
+        self.tracker.telemetry.finish_session()
         self.tracker.reset()
+        self.session_dir = self.tracker.telemetry.start_session(self.session_dir.parent)
+        self.minimap.hide()
+        self.desktop.navigate(2)
         self.sim_timer.setInterval(max(1, round(1000.0 / source.fps)))
         self.source_button.setText("Video: " + source.path.name[:20])
         self.status_bar.showMessage(
@@ -276,7 +290,16 @@ class MainWindow(QMainWindow):
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         path = os.path.join(base_dir, "presets", preset_filename)
         try:
+            self._set_running(False)
+            if self.video_source:
+                self.video_source.close()
+                self.video_source = None
+                self.minimap.show()
+                self.source_button.setText("Open MP4")
+                self.sim_timer.setInterval(round(1000 / self.tracker.cam_config.update_rate_hz))
+            self.tracker.telemetry.finish_session()
             preset = self.tracker.load_preset(path)
+            self.session_dir = self.tracker.telemetry.start_session(self.session_dir.parent)
             self.control_panel.refresh_from_tracker()
             self.minimap.set_references(self.tracker.primary_target, self.tracker.camera, self.tracker.secondary_targets)
             self.status_bar.showMessage(f"Scenario loaded: {preset.name}", 4000)
@@ -292,6 +315,8 @@ class MainWindow(QMainWindow):
             frame = self.video_source.read()
             if frame is None:
                 self._set_running(False)
+                self.tracker.telemetry.finish_session()
+                self.desktop.navigate(3)
                 self.status_bar.showMessage("Video evaluation complete. Run reports are ready.")
             else:
                 detection = self.tracker.step_external_frame(frame, 1.0 / self.video_source.fps)

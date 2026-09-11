@@ -144,4 +144,18 @@ QLabel#stepBadge { color: #76e0ec; border: 1px solid #3a6e76; border-radius: 13p
 QLabel#stepTitle { color: #e8edf3; font-size: 12px; font-weight: 700; }
 QLabel#stepCopy { color: #929eab; font-size: 10px; }
 QLabel#dialogHint { color: #929eab; background-color: #10151b; padding: 9px; border-left: 2px solid #45c7d8; }
+QWidget#navigationRail { background: #171819; border-right: 1px solid #343638; }
+QLabel#railBrand { font-size: 22px; font-weight: 700; background: transparent; }
+QLabel#pageTitle { font-size: 28px; font-weight: 650; background: transparent; }
+QLabel#pageSubtitle { font-size: 12px; color: #a9adb2; background: transparent; padding-bottom: 8px; }
+QLabel#sectionTitle { font-size: 16px; font-weight: 600; background: transparent; }
+QWidget#homeAction { border-bottom: 1px solid #343638; }
+QListWidget#workspaceNavigation, QListWidget#setupNavigation {
+    background: transparent; border: none; outline: none; font-size: 13px;
+}
+QListWidget::item { min-height: 44px; padding-left: 12px; border-radius: 5px; }
+QListWidget::item:selected { background: #313537; color: #91e0d8; }
+QListWidget::item:hover:!selected { background: #242729; }
+QTextBrowser#reviewDocument { border: none; background: #141617; padding: 24px; font-size: 14px; }
+QLabel { background: transparent; }
 """
