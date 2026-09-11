@@ -7,7 +7,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
                              QTabWidget, QSpinBox, QDoubleSpinBox, QGroupBox, QFileDialog, QMessageBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from ..core.config import (TargetShape, MotionTrajectory, AtmosphericCondition, 
-                           PlatformMotionType, TrackingSystem)
+                           PlatformMotionType)
+from ..core.tracker import TrackingSystem
 
 
 class ControlPanelWidget(QWidget):
