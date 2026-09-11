@@ -40,6 +40,18 @@ class PlatformMotionType(Enum):
     FIGURE_OF_8 = "Figure of 8"
 
 
+class TrackingAlgorithm(Enum):
+    IWC = "Intensity Weighted Centroid"
+    GAUSSIAN_FIT = "2D Gaussian Surface Fit"
+    CORRELATION_NCC = "Normalized Cross-Correlation"
+
+
+class AGCMode(Enum):
+    LINEAR = "Linear Standard"
+    HISTOGRAM_EQUALIZATION = "Histogram Equalization"
+    PLATEAU_EQUALIZATION = "Plateau Equalization"
+
+
 class TrackingState(Enum):
     IDLE = "IDLE"
     ACQUIRING = "ACQUIRING"
@@ -156,3 +168,15 @@ class PerformanceThresholds:
     max_target_loss_pct: float = 5.0
     max_reacquisition_time_s: float = 1.0
     min_processing_fps: float = 20.0
+
+
+@dataclass
+class DetectorConfig:
+    algorithm: TrackingAlgorithm = TrackingAlgorithm.GAUSSIAN_FIT
+    enable_track_gate: bool = True
+    gate_size_px: int = 64
+    k_sigma_threshold: float = 2.6
+    subpixel_precision: bool = True
+    min_target_area: int = 4
+    max_target_area: int = 450
+    agc_mode: AGCMode = AGCMode.LINEAR
