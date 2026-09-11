@@ -5,6 +5,7 @@ Controls the movable virtual camera viewport (640x480) with pan/tilt motion cons
 import numpy as np
 from typing import Tuple, Optional
 from .config import CameraConfig, EnvironmentConfig
+from .gimbal import GimbalPedestal
 
 
 class VirtualCamera:
@@ -12,6 +13,12 @@ class VirtualCamera:
                  env_config: Optional[EnvironmentConfig] = None):
         self.config = cam_config or CameraConfig()
         self.env_config = env_config or EnvironmentConfig()
+        
+        # Two-Axis Mechanical Gimbal Assembly
+        self.gimbal = GimbalPedestal(
+            max_rate_deg_s=self.config.max_pan_speed_deg_s,
+            max_accel_deg_s2=25.0
+        )
         
         # Viewport dimensions
         self.width = self.config.viewport_width    # 640
@@ -44,6 +51,7 @@ class VirtualCamera:
         self.platform_offset_y: float = 0.0
 
     def reset(self):
+        self.gimbal.reset()
         self.pan_deg = 0.0
         self.tilt_deg = 0.0
         self.pan_velocity_deg_s = 0.0
@@ -73,23 +81,17 @@ class VirtualCamera:
         self.world_y = float(np.clip(raw_y, half_h, self.env_config.screen_height - half_h))
 
     def apply_pan_tilt_command(self, commanded_pan_vel_deg_s: float, 
-                               commanded_tilt_vel_deg_s: float, dt: float):
+                               commanded_tilt_vel_deg_s: float, dt: float,
+                               fsm_command: Optional[Tuple[float, float]] = None):
         """
-        Applies pan/tilt velocity commands clamped strictly to Max Pan/Tilt Speed constraints (5-10 °/s).
+        Applies pan/tilt velocity commands clamped strictly to Max Pan/Tilt Speed constraints (5-10 °/s)
+        integrated through two-axis gimbal mechanical dynamics.
         """
-        # Enforce rate limits
-        clamped_pan_vel = np.clip(commanded_pan_vel_deg_s, 
-                                  -self.max_pan_speed_deg_s, self.max_pan_speed_deg_s)
-        clamped_tilt_vel = np.clip(commanded_tilt_vel_deg_s, 
-                                   -self.max_tilt_speed_deg_s, self.max_tilt_speed_deg_s)
-        
-        self.pan_velocity_deg_s = clamped_pan_vel
-        self.tilt_velocity_deg_s = clamped_tilt_vel
-        
-        # Integrate angles
-        self.pan_deg += self.pan_velocity_deg_s * dt
-        self.tilt_deg += self.tilt_velocity_deg_s * dt
-        
+        pan, tilt = self.gimbal.step(commanded_pan_vel_deg_s, commanded_tilt_vel_deg_s, dt, fsm_command)
+        self.pan_deg = pan
+        self.tilt_deg = tilt
+        self.pan_velocity_deg_s = self.gimbal.pan_vel_deg_s
+        self.tilt_velocity_deg_s = self.gimbal.tilt_vel_deg_s
         self.update_world_position()
 
     def world_to_viewport(self, wx: float, wy: float) -> Tuple[float, float]:
