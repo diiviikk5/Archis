@@ -65,7 +65,7 @@ def run_benchmark(duration_s: float = 10.0):
     print(f"  3. Target Loss Rate:      {summary['target_loss_pct']:6.2f} %   (Spec: < 5.0 %)   -> {loss_status}")
     
     # 4. Re-acquisition Time
-    reacq_status = "PASSED [PASS]" if summary["reacquisition_passed"] else "PASSED (No loss events) [PASS]"
+    reacq_status = "PASSED [PASS]" if summary["reacquisition_passed"] else "FAILED [FAIL]"
     print(f"  4. Re-acquisition Time:   {summary['reacquisition_time_s']:6.2f} s   (Spec: <= 1.0 s)  -> {reacq_status}")
     
     # 5. Processing Speed
@@ -74,7 +74,7 @@ def run_benchmark(duration_s: float = 10.0):
     
     print("=" * 72)
     all_passed = (summary["acquisition_passed"] and summary["error_passed"] and 
-                  summary["loss_passed"] and real_fps >= 20.0)
+                  summary["loss_passed"] and summary["reacquisition_passed"] and real_fps >= 20.0)
     if all_passed:
         print("  VERDICT: ALL OFFICIAL SPECIFICATIONS MET WITH EXCELLENCE! [10/10]")
     else:

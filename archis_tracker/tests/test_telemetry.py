@@ -4,6 +4,23 @@ from archis_tracker.core.telemetry import TelemetryEngine
 from archis_tracker.core.config import TrackingState
 
 
+def test_empty_session_cannot_pass_benchmark():
+    summary = TelemetryEngine().get_summary()
+    for criterion in ("acquisition", "error", "loss", "reacquisition", "fps"):
+        assert not summary[f"{criterion}_passed"]
+
+
+def test_unresolved_loss_and_exact_loss_limit_fail():
+    telem = TelemetryEngine()
+    telem.has_first_acquisition = True
+    telem.total_frames = 20
+    telem.target_loss_pct = 5.0
+    telem.loss_start_time = 1.0
+    summary = telem.get_summary()
+    assert not summary["loss_passed"]
+    assert not summary["reacquisition_passed"]
+
+
 def test_telemetry_metrics_tracking():
     telem = TelemetryEngine()
     dt = 1.0 / 30.0

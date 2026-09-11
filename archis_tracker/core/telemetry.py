@@ -177,13 +177,13 @@ class TelemetryEngine:
     def get_summary(self) -> Dict[str, Any]:
         return {
             "acquisition_time_s": self.acquisition_time_s,
-            "acquisition_passed": self.acquisition_time_s <= self.thresholds.max_acquisition_time_s,
+            "acquisition_passed": self.has_first_acquisition and self.acquisition_time_s <= self.thresholds.max_acquisition_time_s,
             "rms_error_px": self.rms_error_px,
-            "error_passed": self.rms_error_px <= self.thresholds.max_tracking_error_px,
+            "error_passed": self.has_first_acquisition and self.rms_error_px <= self.thresholds.max_tracking_error_px,
             "target_loss_pct": self.target_loss_pct,
-            "loss_passed": self.target_loss_pct <= self.thresholds.max_target_loss_pct,
+            "loss_passed": self.total_frames > 0 and self.target_loss_pct < self.thresholds.max_target_loss_pct,
             "reacquisition_time_s": self.last_reacquisition_time_s,
-            "reacquisition_passed": self.last_reacquisition_time_s <= self.thresholds.max_reacquisition_time_s,
+            "reacquisition_passed": self.has_first_acquisition and self.loss_start_time is None and self.last_reacquisition_time_s <= self.thresholds.max_reacquisition_time_s,
             "fps": self.current_fps,
-            "fps_passed": self.current_fps >= self.thresholds.min_processing_fps
+            "fps_passed": self.total_frames > 0 and self.current_fps >= self.thresholds.min_processing_fps
         }
