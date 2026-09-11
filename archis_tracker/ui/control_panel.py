@@ -1,18 +1,18 @@
-"""
+﻿"""
 Archis Optical Tracker - Interactive Control Panel
-Configures targets, camera motion limits, disturbance injection, and preset scenarios.
+Configures targets, camera motion limits, disturbance injection,
+optics tracking algorithms, and preset aerospace mission scenarios.
 """
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, 
                              QLabel, QSlider, QComboBox, QCheckBox, QPushButton, 
                              QTabWidget, QSpinBox, QDoubleSpinBox, QGroupBox, QFileDialog, QMessageBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from ..core.config import (TargetShape, MotionTrajectory, AtmosphericCondition, 
-                           PlatformMotionType)
+                           PlatformMotionType, TrackingAlgorithm, AGCMode)
 from ..core.tracker import TrackingSystem
 
 
 class ControlPanelWidget(QWidget):
-    # Signals for parameter updates
     preset_selected_signal = pyqtSignal(str)
     reset_tracking_signal = pyqtSignal()
     toggle_autonomous_signal = pyqtSignal(bool)
@@ -22,7 +22,7 @@ class ControlPanelWidget(QWidget):
     def __init__(self, tracker: TrackingSystem, parent=None):
         super().__init__(parent)
         self.tracker = tracker
-        self.setMinimumWidth(320)
+        self.setMinimumWidth(330)
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -35,15 +35,19 @@ class ControlPanelWidget(QWidget):
         self.tab_target = self._build_target_tab()
         self.tabs.addTab(self.tab_target, "Target")
         
-        # 2. Camera Tab
-        self.tab_camera = self._build_camera_tab()
-        self.tabs.addTab(self.tab_camera, "Gimbal & Cam")
+        # 2. Optics & Algorithms Tab (NEW)
+        self.tab_optics = self._build_optics_tab()
+        self.tabs.addTab(self.tab_optics, "Optics & Algo")
         
-        # 3. Disturbances Tab
+        # 3. Camera & Gimbal Tab
+        self.tab_camera = self._build_camera_tab()
+        self.tabs.addTab(self.tab_camera, "Gimbal")
+        
+        # 4. Disturbances Tab
         self.tab_disturb = self._build_disturbances_tab()
         self.tabs.addTab(self.tab_disturb, "Disturbances")
         
-        # 4. Scenarios & Logging Tab
+        # 5. Scenarios & Logging Tab
         self.tab_presets = self._build_presets_tab()
         self.tabs.addTab(self.tab_presets, "Scenarios")
 
@@ -53,63 +57,127 @@ class ControlPanelWidget(QWidget):
         layout.setSpacing(10)
         
         # Target Shape (User-defined, default Square)
-        box_shape = QGroupBox("Target Shape & Geometry")
+        box_shape = QGroupBox("Target Shape & Profile")
         l_shape = QVBoxLayout(box_shape)
         self.combo_shape = QComboBox()
         for shape in TargetShape:
             self.combo_shape.addItem(shape.value, shape)
-        self.combo_shape.setCurrentText(self.tracker.target_config.shape.value)
+        self.combo_shape.setCurrentText(self.tracker.primary_target.shape.value)
         self.combo_shape.currentIndexChanged.connect(self._on_shape_changed)
         l_shape.addWidget(QLabel("Target Shape (Default: Square):"))
         l_shape.addWidget(self.combo_shape)
         
         # Target Size (5-20 pixels)
         l_size = QHBoxLayout()
-        self.lbl_size = QLabel(f"Size: {self.tracker.target_config.size}x{self.tracker.target_config.size} px")
+        self.lbl_size = QLabel(f"Size: {self.tracker.primary_target.size}x{self.tracker.primary_target.size} px")
         self.slider_size = QSlider(Qt.Orientation.Horizontal)
         self.slider_size.setRange(5, 20)
-        self.slider_size.setValue(self.tracker.target_config.size)
+        self.slider_size.setValue(self.tracker.primary_target.size)
         self.slider_size.valueChanged.connect(self._on_size_changed)
         l_size.addWidget(self.lbl_size)
         l_size.addWidget(self.slider_size)
         l_shape.addLayout(l_size)
         layout.addWidget(box_shape)
         
-        # Motion Trajectory (At least 4: Straight Line, Circular, Figure of 8, Random)
-        box_motion = QGroupBox("Target Motion Trajectory")
+        # Motion Trajectory
+        box_motion = QGroupBox("Motion Trajectory")
         l_motion = QVBoxLayout(box_motion)
         self.combo_traj = QComboBox()
         for traj in MotionTrajectory:
             self.combo_traj.addItem(traj.value, traj)
-        self.combo_traj.setCurrentText(self.tracker.target_config.trajectory.value)
+        self.combo_traj.setCurrentText(self.tracker.primary_target.trajectory.value)
         self.combo_traj.currentIndexChanged.connect(self._on_traj_changed)
         l_motion.addWidget(QLabel("Trajectory Pattern:"))
         l_motion.addWidget(self.combo_traj)
         
         # Target Speed
         l_spd = QHBoxLayout()
-        self.lbl_spd = QLabel(f"Speed: {self.tracker.target_config.speed:.0f} px/s")
+        self.lbl_spd = QLabel(f"Speed: {self.tracker.primary_target.speed:.0f} px/s")
         self.slider_spd = QSlider(Qt.Orientation.Horizontal)
         self.slider_spd.setRange(10, 150)
-        self.slider_spd.setValue(int(self.tracker.target_config.speed))
+        self.slider_spd.setValue(int(self.tracker.primary_target.speed))
         self.slider_spd.valueChanged.connect(self._on_speed_changed)
         l_spd.addWidget(self.lbl_spd)
         l_spd.addWidget(self.slider_spd)
         l_motion.addLayout(l_spd)
         layout.addWidget(box_motion)
         
-        # Multiple Targets Toggle
-        box_multi = QGroupBox("Multiple Targets (Optional)")
-        l_multi = QVBoxLayout(box_multi)
-        self.chk_decoy = QCheckBox("Spawn Decoy Secondary Target")
-        self.chk_decoy.toggled.connect(self._on_decoy_toggled)
-        l_multi.addWidget(self.chk_decoy)
-        layout.addWidget(box_multi)
+        # Interactive Target Repositioning
+        box_actions = QGroupBox("Target Position Controls")
+        l_act = QVBoxLayout(box_actions)
         
-        # Reset Target
-        btn_reset_tgt = QPushButton("Reposition Target to Center")
-        btn_reset_tgt.clicked.connect(lambda: self.tracker.primary_target.reset_position(1000.0, 1000.0))
-        layout.addWidget(btn_reset_tgt)
+        btn_center_tgt = QPushButton("Center Beacon at (1000, 1000)")
+        btn_center_tgt.clicked.connect(lambda: self.tracker.primary_target.reset_position(1000.0, 1000.0))
+        l_act.addWidget(btn_center_tgt)
+        
+        btn_jump = QPushButton("Simulate Target Jump (Re-acq Test)")
+        btn_jump.clicked.connect(self._on_jump_target)
+        l_act.addWidget(btn_jump)
+        layout.addWidget(box_actions)
+        
+        layout.addStretch()
+        return w
+
+    def _build_optics_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setSpacing(10)
+        
+        # Tracking Algorithm Selector
+        box_algo = QGroupBox("Computer Vision Algorithm")
+        l_algo = QVBoxLayout(box_algo)
+        self.combo_algo = QComboBox()
+        for algo in TrackingAlgorithm:
+            self.combo_algo.addItem(algo.value, algo)
+        self.combo_algo.setCurrentText(self.tracker.detector.config.algorithm.value)
+        self.combo_algo.currentIndexChanged.connect(self._on_algo_changed)
+        l_algo.addWidget(QLabel("Centroiding & Track Method:"))
+        l_algo.addWidget(self.combo_algo)
+        layout.addWidget(box_algo)
+        
+        # Dynamic Track Gate
+        box_gate = QGroupBox("Dynamic Track Gate")
+        l_gate = QVBoxLayout(box_gate)
+        self.chk_gate = QCheckBox("Enable Innovation Track Gate")
+        self.chk_gate.setChecked(self.tracker.detector.config.enable_track_gate)
+        self.chk_gate.toggled.connect(lambda v: setattr(self.tracker.detector.config, "enable_track_gate", v))
+        l_gate.addWidget(self.chk_gate)
+        
+        l_gsz = QHBoxLayout()
+        self.lbl_gate_sz = QLabel(f"Gate Size: {self.tracker.detector.config.gate_size_px} px")
+        self.slider_gate_sz = QSlider(Qt.Orientation.Horizontal)
+        self.slider_gate_sz.setRange(32, 128)
+        self.slider_gate_sz.setValue(self.tracker.detector.config.gate_size_px)
+        self.slider_gate_sz.valueChanged.connect(self._on_gate_sz_changed)
+        l_gsz.addWidget(self.lbl_gate_sz)
+        l_gsz.addWidget(self.slider_gate_sz)
+        l_gate.addLayout(l_gsz)
+        layout.addWidget(box_gate)
+        
+        # Automatic Gain Control (AGC)
+        box_agc = QGroupBox("FPA Automatic Gain Control")
+        l_agc = QVBoxLayout(box_agc)
+        self.combo_agc = QComboBox()
+        for mode in AGCMode:
+            self.combo_agc.addItem(mode.value, mode)
+        self.combo_agc.setCurrentText(self.tracker.detector.config.agc_mode.value)
+        self.combo_agc.currentIndexChanged.connect(self._on_agc_changed)
+        l_agc.addWidget(QLabel("Sensor AGC Mode:"))
+        l_agc.addWidget(self.combo_agc)
+        layout.addWidget(box_agc)
+        
+        # Clutter & Decoy Spawning
+        box_decoy = QGroupBox("Multi-Target & Clutter Rejection")
+        l_decoy = QVBoxLayout(box_decoy)
+        
+        btn_spawn_decoy = QPushButton("Spawn Decoy Spot in FOV")
+        btn_spawn_decoy.clicked.connect(self._on_spawn_decoy)
+        l_decoy.addWidget(btn_spawn_decoy)
+        
+        btn_clear_decoys = QPushButton("Clear All Decoys")
+        btn_clear_decoys.clicked.connect(self.tracker.clear_decoys)
+        l_decoy.addWidget(btn_clear_decoys)
+        layout.addWidget(box_decoy)
         
         layout.addStretch()
         return w
@@ -120,7 +188,7 @@ class ControlPanelWidget(QWidget):
         layout.setSpacing(10)
         
         # Pan/Tilt Motion Constraints (5-10 °/s, default 5 °/s)
-        box_gimbal = QGroupBox("Gimbal Speed Constraints")
+        box_gimbal = QGroupBox("Gimbal Speed Constraints (5-10 °/s)")
         l_gimbal = QVBoxLayout(box_gimbal)
         
         # Max Pan Speed
@@ -147,7 +215,7 @@ class ControlPanelWidget(QWidget):
         layout.addWidget(box_gimbal)
         
         # Closed-Loop Control Mode
-        box_ctrl = QGroupBox("Tracking Controller")
+        box_ctrl = QGroupBox("Autonomous Control Law")
         l_ctrl = QVBoxLayout(box_ctrl)
         self.chk_auto = QCheckBox("Autonomous Closed-Loop Tracking")
         self.chk_auto.setChecked(True)
@@ -225,18 +293,27 @@ class ControlPanelWidget(QWidget):
         l_noise.addWidget(self.chk_poisson)
         layout.addWidget(box_noise)
         
-        # 3. Dynamic Motion Disturbances (Jitter & Platform)
-        box_dyn = QGroupBox("Vibrations & Jitter (+-20 px/frame)")
-        l_dyn = QVBoxLayout(box_dyn)
+        # 3. Camera Jitter (+-20 px)
+        box_jit = QGroupBox("Camera Jitter (+-20 px max)")
+        l_jit = QVBoxLayout(box_jit)
+        self.chk_jit = QCheckBox("Enable High-Frequency Jitter")
+        self.chk_jit.toggled.connect(lambda v: setattr(self.tracker.disturb_config, "enable_camera_jitter", v))
+        l_jit.addWidget(self.chk_jit)
+        layout.addWidget(box_jit)
         
-        self.chk_jitter = QCheckBox("Camera Jitter (+-8 px)")
-        self.chk_jitter.toggled.connect(lambda v: setattr(self.tracker.disturb_config, "enable_camera_jitter", v))
-        l_dyn.addWidget(self.chk_jitter)
-        
-        self.chk_plat = QCheckBox("Platform Dynamic Motion (+-5 px)")
+        # 4. Platform Motion (+-20 px)
+        box_plat = QGroupBox("Platform Motion (+-20 px max)")
+        l_plat = QVBoxLayout(box_plat)
+        self.chk_plat = QCheckBox("Enable Platform Motion")
         self.chk_plat.toggled.connect(lambda v: setattr(self.tracker.disturb_config, "enable_platform_motion", v))
-        l_dyn.addWidget(self.chk_plat)
-        layout.addWidget(box_dyn)
+        l_plat.addWidget(self.chk_plat)
+        
+        self.combo_plat = QComboBox()
+        for ptype in PlatformMotionType:
+            self.combo_plat.addItem(ptype.value, ptype)
+        self.combo_plat.currentIndexChanged.connect(self._on_plat_type_changed)
+        l_plat.addWidget(self.combo_plat)
+        layout.addWidget(box_plat)
         
         layout.addStretch()
         return w
@@ -246,151 +323,119 @@ class ControlPanelWidget(QWidget):
         layout = QVBoxLayout(w)
         layout.setSpacing(10)
         
-        # Preset Operational Scenarios
-        box_pre = QGroupBox("Operational Presets")
-        l_pre = QVBoxLayout(box_pre)
+        box_p = QGroupBox("Aerospace Mission Presets")
+        l_p = QVBoxLayout(box_p)
         
         presets = [
-            ("Nominal LEO Pass", "Clean sky, Figure-8 target, nominal jitter"),
-            ("Heavy Atmospheric Turbulence", "Fog, Gaussian noise, contrast loss"),
-            ("Platform Vibration Shock", "+-15px Jitter + Harmonic platform motion"),
-            ("Cloud Dropout & Relock", "Low light, target obscuration, relock test"),
-            ("High-Speed Evasive Target", "Rapid Brownian direction changes")
+            ("01. Nominal Clear Sky (LEO Optical Pass)", "01_nominal_clear_sky.json"),
+            ("02. High Vibration (Airborne Pod Jitter)", "02_high_vibration_airborne.json"),
+            ("03. Dense Fog Atmospheric Inversion", "03_dense_fog_obscuration.json"),
+            ("04. Low Light Night Intercept", "04_low_light_night.json"),
+            ("05. High Speed Evasive Maneuvers", "05_high_speed_evasive.json")
         ]
         
-        for name, desc in presets:
+        for name, filename in presets:
             btn = QPushButton(name)
-            btn.setToolTip(desc)
-            btn.clicked.connect(lambda checked, n=name: self._apply_preset(n))
-            l_pre.addWidget(btn)
-            
-        layout.addWidget(box_pre)
+            btn.clicked.connect(lambda checked, fn=filename: self.preset_selected_signal.emit(fn))
+            l_p.addWidget(btn)
+        layout.addWidget(box_p)
         
-        # Telemetry Data Logging
-        box_log = QGroupBox("Telemetry CSV Logger")
+        # Telemetry Logging to CSV
+        box_log = QGroupBox("Flight Data Recorder (CSV)")
         l_log = QVBoxLayout(box_log)
-        self.btn_log = QPushButton("Start Recording CSV Log")
-        self.btn_log.clicked.connect(self._toggle_logging)
+        self.btn_log = QPushButton("Start Recording Telemetry")
+        self.btn_log.setCheckable(True)
+        self.btn_log.toggled.connect(self._on_log_toggled)
         l_log.addWidget(self.btn_log)
-        
-        self.lbl_log_status = QLabel("Status: Idle")
-        self.lbl_log_status.setStyleSheet("color: #94a3b8; font-size: 10px;")
+        self.lbl_log_status = QLabel("Recorder: IDLE")
         l_log.addWidget(self.lbl_log_status)
         layout.addWidget(box_log)
-        
-        # Reset Session
-        btn_reset_all = QPushButton("Reset All Performance Metrics")
-        btn_reset_all.setObjectName("actionButton")
-        btn_reset_all.clicked.connect(self._on_reset_all)
-        layout.addWidget(btn_reset_all)
         
         layout.addStretch()
         return w
 
-    # --- Event Handlers ---
-    def _on_shape_changed(self, idx):
-        shape = self.combo_shape.itemData(idx)
+    def _on_shape_changed(self, idx: int):
+        shape = self.combo_shape.currentData()
         self.tracker.primary_target.shape = shape
-        self.tracker.target_config.shape = shape
 
-    def _on_size_changed(self, val):
+    def _on_size_changed(self, val: int):
         self.lbl_size.setText(f"Size: {val}x{val} px")
         self.tracker.primary_target.size = val
-        self.tracker.target_config.size = val
 
-    def _on_traj_changed(self, idx):
-        traj = self.combo_traj.itemData(idx)
+    def _on_traj_changed(self, idx: int):
+        traj = self.combo_traj.currentData()
         self.tracker.primary_target.trajectory = traj
-        self.tracker.target_config.trajectory = traj
+        self.tracker.primary_target.reset_position(self.tracker.primary_target.x, self.tracker.primary_target.y)
 
-    def _on_speed_changed(self, val):
+    def _on_speed_changed(self, val: int):
         self.lbl_spd.setText(f"Speed: {val} px/s")
         self.tracker.primary_target.speed = float(val)
-        self.tracker.target_config.speed = float(val)
 
-    def _on_decoy_toggled(self, checked):
-        if checked:
-            from ..core.target import TargetBeacon, TargetConfig, MotionTrajectory, TargetShape
-            cfg = TargetConfig(shape=TargetShape.CIRCLE, size=8, trajectory=MotionTrajectory.CIRCULAR, speed=35.0, initial_x=1150.0, initial_y=950.0)
-            decoy = TargetBeacon(1, cfg, is_primary=False)
-            self.tracker.secondary_targets = [decoy]
-        else:
-            self.tracker.secondary_targets.clear()
+    def _on_jump_target(self):
+        # Displace target by 120px to test re-acquisition
+        self.tracker.primary_target.x += 120.0
+        self.tracker.primary_target.y += 80.0
 
-    def _on_pan_spd_changed(self, val):
+    def _on_algo_changed(self, idx: int):
+        algo = self.combo_algo.currentData()
+        self.tracker.set_algorithm(algo)
+
+    def _on_gate_sz_changed(self, val: int):
+        self.lbl_gate_sz.setText(f"Gate Size: {val} px")
+        self.tracker.detector.config.gate_size_px = val
+
+    def _on_agc_changed(self, idx: int):
+        mode = self.combo_agc.currentData()
+        self.tracker.set_agc_mode(mode)
+
+    def _on_spawn_decoy(self):
+        # Spawn decoy near camera boresight with slight offset
+        cam_x, cam_y = self.tracker.camera.world_x, self.tracker.camera.world_y
+        offset_x = np.random.uniform(-100, 100)
+        offset_y = np.random.uniform(-100, 100)
+        self.tracker.spawn_decoy(cam_x + offset_x, cam_y + offset_y, speed=40.0)
+
+    def _on_pan_spd_changed(self, val: int):
         spd = val / 10.0
         self.lbl_pan_spd.setText(f"Max Pan Speed: {spd:.1f} °/s")
+        self.tracker.cam_config.max_pan_speed_deg_s = spd
         self.tracker.camera.max_pan_speed_deg_s = spd
 
-    def _on_tilt_spd_changed(self, val):
+    def _on_tilt_spd_changed(self, val: int):
         spd = val / 10.0
         self.lbl_tilt_spd.setText(f"Max Tilt Speed: {spd:.1f} °/s")
+        self.tracker.cam_config.max_tilt_speed_deg_s = spd
         self.tracker.camera.max_tilt_speed_deg_s = spd
 
-    def _on_auto_toggled(self, checked):
+    def _on_auto_toggled(self, checked: bool):
         self.tracker.is_autonomous_tracking = checked
         self.toggle_autonomous_signal.emit(checked)
 
     def _manual_nudge(self, d_pan: float, d_tilt: float):
-        self.tracker.camera.pan_deg += d_pan
-        self.tracker.camera.tilt_deg += d_tilt
-        self.tracker.camera.update_world_position()
+        self.tracker.camera.apply_pan_tilt_command(d_pan * 5.0, d_tilt * 5.0, 0.1)
 
-    def _on_atm_changed(self, idx):
-        atm = self.combo_atm.itemData(idx)
-        self.tracker.disturb_config.atmospheric_condition = atm
+    def _on_atm_changed(self, idx: int):
+        cond = self.combo_atm.currentData()
+        self.tracker.disturb_config.atmospheric_condition = cond
 
-    def _on_atm_sev_changed(self, val):
-        sev = val / 100.0
+    def _on_atm_sev_changed(self, val: int):
         self.lbl_sev.setText(f"Severity: {val}%")
-        self.tracker.disturb_config.atmospheric_severity = sev
+        self.tracker.disturb_config.atmospheric_severity = val / 100.0
 
-    def _apply_preset(self, name: str):
-        if name == "Nominal LEO Pass":
-            self.combo_atm.setCurrentIndex(0)
-            self.chk_sp.setChecked(False)
-            self.chk_gauss.setChecked(False)
-            self.chk_jitter.setChecked(False)
-            self.combo_traj.setCurrentText(MotionTrajectory.FIGURE_OF_8.value)
-            self.slider_spd.setValue(45)
-            
-        elif name == "Heavy Turbulence & Fog":
-            self.combo_atm.setCurrentText(AtmosphericCondition.FOG.value)
-            self.slider_sev.setValue(65)
-            self.chk_gauss.setChecked(True)
-            self.tracker.disturb_config.gaussian_noise_std = 12.0
-            
-        elif name == "Platform Vibration Shock":
-            self.chk_jitter.setChecked(True)
-            self.tracker.disturb_config.max_camera_jitter_px = 15.0
-            self.chk_plat.setChecked(True)
-            self.tracker.disturb_config.platform_motion_amplitude_px = 12.0
-            
-        elif name == "Cloud Dropout & Relock":
-            self.combo_atm.setCurrentText(AtmosphericCondition.LOW_LIGHT.value)
-            self.slider_sev.setValue(85)
-            self.chk_sp.setChecked(True)
-            
-        elif name == "High-Speed Evasive Target":
-            self.combo_traj.setCurrentText(MotionTrajectory.RANDOM.value)
-            self.slider_spd.setValue(90)
-            
-        self.preset_selected_signal.emit(name)
+    def _on_plat_type_changed(self, idx: int):
+        ptype = self.combo_plat.currentData()
+        self.tracker.disturb_config.platform_motion_type = ptype
 
-    def _toggle_logging(self):
-        if not self.tracker.telemetry.is_logging:
-            path, _ = QFileDialog.getSaveFileName(self, "Save Telemetry CSV", "archis_telemetry.csv", "CSV Files (*.csv)")
-            if path:
-                if self.tracker.telemetry.start_csv_log(path):
-                    self.btn_log.setText("Stop Recording CSV")
-                    self.btn_log.setStyleSheet("background-color: #f43f5e; color: white;")
-                    self.lbl_log_status.setText(f"Recording: {os.path.basename(path)}")
+    def _on_log_toggled(self, checked: bool):
+        if checked:
+            fn, _ = QFileDialog.getSaveFileName(self, "Export Telemetry CSV", "archis_telemetry.csv", "CSV Files (*.csv)")
+            if fn:
+                self.start_log_signal.emit(fn)
+                self.btn_log.setText("Stop Recording")
+                self.lbl_log_status.setText("Recorder: RECORDING (Live CSV)")
+            else:
+                self.btn_log.setChecked(False)
         else:
-            self.tracker.telemetry.stop_csv_log()
-            self.btn_log.setText("Start Recording CSV Log")
-            self.btn_log.setStyleSheet("")
-            self.lbl_log_status.setText("Status: Log Saved")
-
-    def _on_reset_all(self):
-        self.tracker.reset()
-        self.reset_tracking_signal.emit()
+            self.stop_log_signal.emit()
+            self.btn_log.setText("Start Recording Telemetry")
+            self.lbl_log_status.setText("Recorder: SAVED & CLOSED")
