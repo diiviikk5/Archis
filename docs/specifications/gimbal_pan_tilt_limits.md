@@ -5,13 +5,12 @@ Mechanical acceleration curves, Lorentz voice-coil actuator dynamics, and torque
 
 ## Mathematical Formulation
 The optical tracking parameters adhere strictly to the system requirements:
-- Update frequency: $\ge 30\,\text{Hz}$
-- Sampling interval: $\Delta t = 0.0333\,\text{s}$
-- Spatial resolution: $640 \times 480\,\text{pixels}$
-- Coordinate space: $2000 \times 2000\,\text{pixels}$
+- Update frequency: >= 30 Hz
+- Sampling interval: dt = 0.0333 s
+- Spatial resolution: 640x480 pixels
+- Coordinate space: 2000x2000 pixels
 
 $$\mathbf{e}(t) = \mathbf{x}_{\text{target}}(t) - \mathbf{x}_{\text{boresight}}$$
-
 $$\text{RMS}_{\text{error}} = \sqrt{\frac{1}{N} \sum_{k=1}^{N} \|\mathbf{e}_k\|^2} \le 10.0\,\text{px}$$
 
 ## Verification Procedure
