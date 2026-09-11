@@ -1,0 +1,17 @@
+{
+  "name": "Platform Vibration Shock",
+  "description": "Spacecraft reaction wheel harmonics and high-amplitude multi-axis platform jitter (\u00b115px/frame).",
+  "target": {
+    "shape": "Square",
+    "size": 10,
+    "trajectory": "Straight Line",
+    "speed": 50.0
+  },
+  "disturbances": {
+    "enable_camera_jitter": true,
+    "max_camera_jitter_px": 15.0,
+    "enable_platform_motion": true,
+    "platform_motion_type": "Linear",
+    "platform_motion_amplitude_px": 12.0
+  }
+}

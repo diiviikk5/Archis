@@ -1,0 +1,22 @@
+{
+  "name": "Heavy Atmospheric Turbulence",
+  "description": "Dense fog and severe scintillation turbulence causing contrast attenuation and high noise floor.",
+  "target": {
+    "shape": "Gaussian Spot",
+    "size": 14,
+    "trajectory": "Circular",
+    "speed": 35.0
+  },
+  "camera": {
+    "max_pan_speed_deg_s": 6.0,
+    "max_tilt_speed_deg_s": 6.0
+  },
+  "disturbances": {
+    "atmospheric_condition": "Fog",
+    "atmospheric_severity": 0.65,
+    "enable_salt_pepper": true,
+    "salt_pepper_ratio": 0.04,
+    "enable_gaussian_noise": true,
+    "gaussian_noise_std": 12.0
+  }
+}

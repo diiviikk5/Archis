@@ -1,0 +1,16 @@
+{
+  "name": "Cloud Dropout & Re-acquisition",
+  "description": "Intermittent heavy cloud occlusion triggering dead reckoning and autonomous re-acquisition spiral scan.",
+  "target": {
+    "shape": "Circle",
+    "size": 12,
+    "trajectory": "Sinusoidal",
+    "speed": 40.0
+  },
+  "disturbances": {
+    "atmospheric_condition": "Low Light",
+    "atmospheric_severity": 0.85,
+    "enable_salt_pepper": true,
+    "salt_pepper_ratio": 0.08
+  }
+}

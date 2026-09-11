@@ -1,0 +1,24 @@
+{
+  "name": "Nominal LEO Pass",
+  "description": "Standard low-earth orbit beacon tracking under nominal space-to-ground clear atmospheric conditions.",
+  "target": {
+    "shape": "Square",
+    "size": 10,
+    "trajectory": "Figure of 8",
+    "speed": 45.0
+  },
+  "camera": {
+    "max_pan_speed_deg_s": 5.0,
+    "max_tilt_speed_deg_s": 5.0,
+    "fov_x_deg": 4.0,
+    "fov_y_deg": 3.0
+  },
+  "disturbances": {
+    "atmospheric_condition": "Clear",
+    "enable_salt_pepper": false,
+    "enable_gaussian_noise": false,
+    "enable_camera_jitter": true,
+    "max_camera_jitter_px": 3.0,
+    "enable_platform_motion": false
+  }
+}

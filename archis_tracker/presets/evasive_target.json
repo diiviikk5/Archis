@@ -1,0 +1,14 @@
+{
+  "name": "High-Speed Evasive Target",
+  "description": "Unpredictable Brownian stochastic trajectory with rapid acceleration changes up to 90 px/s.",
+  "target": {
+    "shape": "Square",
+    "size": 8,
+    "trajectory": "Random (Brownian)",
+    "speed": 85.0
+  },
+  "camera": {
+    "max_pan_speed_deg_s": 8.0,
+    "max_tilt_speed_deg_s": 8.0
+  }
+}
