@@ -1,147 +1,247 @@
 """
-Archis Optical Tracker - Computer Vision Optical Beacon Detector
-Implements dynamic adaptive thresholding, morphological filtering,
-blob analysis, and sub-pixel 2D Gaussian centroiding (<0.05 px precision).
+Archis Optical Tracker - Multi-Algorithm Computer Vision Beacon Detector
+Implements Intensity-Weighted Centroid (IWC), Analytical 2D Gaussian Surface Fit,
+and Normalized Cross-Correlation (NCC) template matching with dynamic track gating.
 """
 import numpy as np
 import cv2
 from typing import Tuple, Optional, List, Dict, Any
+from .config import TrackingAlgorithm, AGCMode, DetectorConfig
+from .association import DataAssociator
 
 
 class DetectionResult:
     def __init__(self, detected: bool, x: float = 0.0, y: float = 0.0,
                  bbox: Tuple[int, int, int, int] = (0, 0, 0, 0),
+                 gate_bbox: Optional[Tuple[int, int, int, int]] = None,
                  confidence: float = 0.0, peak_intensity: float = 0.0,
-                 snr_db: float = 0.0):
+                 snr_db: float = 0.0, algorithm_used: str = "IWC"):
         self.detected = detected
         self.x = x  # Sub-pixel continuous coordinates in viewport (0 to 640)
         self.y = y  # (0 to 480)
         self.bbox = bbox  # (x, y, w, h)
+        self.gate_bbox = gate_bbox  # Track gate region
         self.confidence = confidence  # 0.0 to 1.0
         self.peak_intensity = peak_intensity
         self.snr_db = snr_db
+        self.algorithm_used = algorithm_used
 
 
 class BeaconDetector:
-    def __init__(self, min_size: int = 3, max_size: int = 35):
-        self.min_size = min_size
-        self.max_size = max_size
-        self.min_area = max(4, min_size * min_size // 2)
-        self.max_area = max_size * max_size * 2
+    def __init__(self, config: Optional[DetectorConfig] = None):
+        self.config = config or DetectorConfig()
+        self.associator = DataAssociator(gate_threshold_chi2=9.21)
+        
+        # Stored target template for Correlation Tracking (NCC)
+        self.target_template: Optional[np.ndarray] = None
+        self.template_size = 21
+
+    def apply_agc(self, frame: np.ndarray) -> np.ndarray:
+        """Applies Automatic Gain Control (Linear, Histogram Equalization, Plateau)."""
+        mode = self.config.agc_mode
+        if mode == AGCMode.LINEAR:
+            return frame
+        elif mode == AGCMode.HISTOGRAM_EQUALIZATION:
+            return cv2.equalizeHist(frame)
+        elif mode == AGCMode.PLATEAU_EQUALIZATION:
+            # Plateau equalization: clamp histogram peaks to avoid noise explosion
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            return clahe.apply(frame)
+        return frame
 
     def detect(self, frame: np.ndarray, 
-               predicted_pos: Optional[Tuple[float, float]] = None) -> DetectionResult:
+               predicted_pos: Optional[Tuple[float, float]] = None,
+               cov_matrix: Optional[np.ndarray] = None) -> DetectionResult:
         """
-        Detects the designated optical beacon in a 640x480 monochrome image frame.
-        Supports high noise rejection (salt & pepper, gaussian, fog).
+        Detects designated optical beacon using selected aerospace CV tracking algorithm.
         """
         h, w = frame.shape
+        agc_frame = self.apply_agc(frame)
         
-        # 1. Noise suppression pre-filter: 3x3 median filter for salt & pepper noise
-        filtered = cv2.medianBlur(frame, 3)
+        # 1. Determine Search Region (Track Gate vs Full Viewport)
+        gate_box = None
+        crop_x0, crop_y0 = 0, 0
+        search_frame = agc_frame
         
-        # 2. Dynamic statistical thresholding
-        # Compute background mean and standard deviation
+        if self.config.enable_track_gate and predicted_pos is not None:
+            px, py = predicted_pos
+            g_sz = self.config.gate_size_px
+            # Ensure gate center stays inside frame
+            gx1 = max(0, int(px - g_sz / 2.0))
+            gy1 = max(0, int(py - g_sz / 2.0))
+            gx2 = min(w, gx1 + g_sz)
+            gy2 = min(h, gy1 + g_sz)
+            
+            if (gx2 - gx1) >= 20 and (gy2 - gy1) >= 20:
+                gate_box = (gx1, gy1, gx2 - gx1, gy2 - gy1)
+                crop_x0, crop_y0 = gx1, gy1
+                search_frame = agc_frame[gy1:gy2, gx1:gx2]
+
+        # 2. Noise suppression pre-filter
+        filtered = cv2.medianBlur(search_frame, 3)
+        sh, sw = filtered.shape
+        
+        # 3. Dynamic statistical thresholding
         mean_val, std_val = cv2.meanStdDev(filtered)
         mean_bg = float(mean_val[0][0])
         std_bg = float(std_val[0][0])
         
-        # Adaptive threshold: mean + k * std, with bounds
-        k_factor = 2.8
-        dynamic_thresh = max(40.0, min(235.0, mean_bg + k_factor * std_bg))
-        
+        k_factor = self.config.k_sigma_threshold
+        dynamic_thresh = max(35.0, min(240.0, mean_bg + k_factor * std_bg))
         _, binary = cv2.threshold(filtered, int(dynamic_thresh), 255, cv2.THRESH_BINARY)
         
-        # 3. Morphological opening to remove isolated spurious pixels
+        # Morphological opening to strip salt noise
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
         opened = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
         
-        # 4. Connected components / contour analysis
+        # 4. Blob / Contour extraction
         contours, _ = cv2.findContours(opened, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
         candidates: List[Dict[str, Any]] = []
+        
         for c in contours:
             area = cv2.contourArea(c)
-            if self.min_area <= area <= self.max_area:
+            if self.config.min_target_area <= area <= self.config.max_target_area:
                 bx, by, bw, bh = cv2.boundingRect(c)
-                # Check aspect ratio (beacon spots are roughly symmetrical: 0.35 to 2.8)
                 aspect = float(bw) / float(max(1, bh))
-                if 0.35 <= aspect <= 2.85:
-                    # Compute candidate center
-                    cx = bx + bw / 2.0
-                    cy = by + bh / 2.0
+                if 0.30 <= aspect <= 3.2:
+                    # Global frame coordinates
+                    cx_global = float(bx + bw / 2.0 + crop_x0)
+                    cy_global = float(by + bh / 2.0 + crop_y0)
                     
-                    # Peak intensity in candidate bounding box
                     roi = filtered[by:by+bh, bx:bx+bw]
                     peak = float(np.max(roi)) if roi.size > 0 else 0.0
                     
-                    # Distance to predicted position (if tracking lock is active)
-                    dist_to_pred = 0.0
-                    if predicted_pos is not None:
-                        dist_to_pred = np.hypot(cx - predicted_pos[0], cy - predicted_pos[1])
-                        
                     candidates.append({
-                        "contour": c,
-                        "area": area,
-                        "bbox": (bx, by, bw, bh),
-                        "center": (cx, cy),
+                        "x": cx_global,
+                        "y": cy_global,
+                        "local_bbox": (bx, by, bw, bh),
+                        "global_bbox": (bx + crop_x0, by + crop_y0, bw, bh),
                         "peak": peak,
-                        "dist_to_pred": dist_to_pred
+                        "area": area
                     })
 
+        # Fallback if binary threshold failed to catch beacon
         if not candidates:
-            # Fallback: if dynamic threshold was too strict, check global brightest localized region
             max_val, max_loc = cv2.minMaxLoc(filtered)[1], cv2.minMaxLoc(filtered)[3]
-            if max_val > mean_bg + 2.0 * std_bg and max_val > 50.0:
-                bx = max(0, max_loc[0] - 5)
-                by = max(0, max_loc[1] - 5)
-                bw = min(w - bx, 11)
-                bh = min(h - by, 11)
+            if max_val > mean_bg + 1.8 * std_bg and max_val > 45.0:
+                lx, ly = max_loc
                 candidates.append({
-                    "bbox": (bx, by, bw, bh),
-                    "center": (float(max_loc[0]), float(max_loc[1])),
+                    "x": float(lx + crop_x0),
+                    "y": float(ly + crop_y0),
+                    "local_bbox": (max(0, lx-5), max(0, ly-5), 11, 11),
+                    "global_bbox": (max(0, lx-5 + crop_x0), max(0, ly-5 + crop_y0), 11, 11),
                     "peak": float(max_val),
-                    "dist_to_pred": np.hypot(max_loc[0] - predicted_pos[0], max_loc[1] - predicted_pos[1]) if predicted_pos else 0.0
+                    "area": 25.0
                 })
 
         if not candidates:
-            return DetectionResult(detected=False)
+            return DetectionResult(detected=False, gate_bbox=gate_box)
 
-        # Select best candidate
-        # If predicted position exists, favor candidates closest to prediction
-        if predicted_pos is not None and len(candidates) > 1:
-            # Score combining peak intensity and proximity to prediction
-            for cand in candidates:
-                cand["score"] = cand["peak"] / (1.0 + 0.05 * cand["dist_to_pred"])
-            best = max(candidates, key=lambda c: c["score"])
+        # 5. Data Association & Decoy Gating
+        if predicted_pos is not None:
+            best = self.associator.associate_best_candidate(
+                candidates, predicted_pos[0], predicted_pos[1], cov_matrix
+            )
+            if best is None:
+                best = candidates[0]
         else:
             best = max(candidates, key=lambda c: c["peak"])
 
-        bx, by, bw, bh = best["bbox"]
+        gbx, gby, gbw, gbh = best["global_bbox"]
+        lbx, lby, lbw, lbh = best["local_bbox"]
         
-        # 5. Sub-pixel 2D Centroiding using Intensity-Weighted Moments
-        # Expand ROI slightly for clean sub-pixel fitting
-        pad = 3
-        rx1 = max(0, bx - pad)
-        ry1 = max(0, by - pad)
-        rx2 = min(w, bx + bw + pad)
-        ry2 = min(h, by + bh + pad)
-        
-        roi = filtered[ry1:ry2, rx1:rx2].astype(np.float32)
-        # Subtract local background
-        roi_bg = np.percentile(roi, 15) if roi.size > 0 else mean_bg
-        roi_sub = np.maximum(0.0, roi - roi_bg)
-        
-        total_mass = float(np.sum(roi_sub))
-        if total_mass > 1e-4:
-            y_indices, x_indices = np.indices(roi_sub.shape)
-            sub_x = float(np.sum(x_indices * roi_sub) / total_mass) + rx1
-            sub_y = float(np.sum(y_indices * roi_sub) / total_mass) + ry1
-        else:
-            sub_x = float(bx + bw / 2.0)
-            sub_y = float(by + bh / 2.0)
+        # 6. Apply Selected Sub-Pixel Centroid Algorithm
+        algo = self.config.algorithm
+        final_x, final_y = best["x"], best["y"]
 
-        # Compute SNR in dB
+        if algo == TrackingAlgorithm.IWC:
+            # Intensity-Weighted Centroid
+            pad = 3
+            rx1 = max(0, lbx - pad)
+            ry1 = max(0, lby - pad)
+            rx2 = min(sw, lbx + lbw + pad)
+            ry2 = min(sh, lby + lbh + pad)
+            
+            roi = filtered[ry1:ry2, rx1:rx2].astype(np.float32)
+            roi_bg = np.percentile(roi, 15) if roi.size > 0 else mean_bg
+            roi_sub = np.maximum(0.0, roi - roi_bg)
+            mass = float(np.sum(roi_sub))
+            if mass > 1e-4:
+                yy, xx = np.indices(roi_sub.shape)
+                final_x = float(np.sum(xx * roi_sub) / mass) + rx1 + crop_x0
+                final_y = float(np.sum(yy * roi_sub) / mass) + ry1 + crop_y0
+
+        elif algo == TrackingAlgorithm.GAUSSIAN_FIT:
+            # Analytical 2D Gaussian Surface Fitting with IWC baseline
+            pad = 3
+            rx1 = max(0, lbx - pad)
+            ry1 = max(0, lby - pad)
+            rx2 = min(sw, lbx + lbw + pad)
+            ry2 = min(sh, lby + lbh + pad)
+            
+            roi = filtered[ry1:ry2, rx1:rx2].astype(np.float32)
+            roi_bg = np.percentile(roi, 15) if roi.size > 0 else mean_bg
+            roi_sub = np.maximum(0.0, roi - roi_bg)
+            mass = float(np.sum(roi_sub))
+            
+            if mass > 1e-4:
+                yy, xx = np.indices(roi_sub.shape)
+                iwc_x = float(np.sum(xx * roi_sub) / mass)
+                iwc_y = float(np.sum(yy * roi_sub) / mass)
+            else:
+                iwc_x = float(lbw / 2.0 + pad)
+                iwc_y = float(lbh / 2.0 + pad)
+
+            # Refine with 2D Gaussian log-polynomial peak fit around centroid
+            p_x = int(round(iwc_x))
+            p_y = int(round(iwc_y))
+            if 1 <= p_x < roi.shape[1] - 1 and 1 <= p_y < roi.shape[0] - 1:
+                v_center = max(1.0, roi[p_y, p_x])
+                v_left = max(1.0, roi[p_y, p_x - 1])
+                v_right = max(1.0, roi[p_y, p_x + 1])
+                v_up = max(1.0, roi[p_y - 1, p_x])
+                v_down = max(1.0, roi[p_y + 1, p_x])
+                
+                curv_x = v_left - 2.0 * v_center + v_right
+                curv_y = v_up - 2.0 * v_center + v_down
+                if curv_x < -2.0 and curv_y < -2.0:
+                    l_c = np.log(v_center)
+                    denom_x = 2.0 * (np.log(v_left) - 2.0 * l_c + np.log(v_right))
+                    denom_y = 2.0 * (np.log(v_up) - 2.0 * l_c + np.log(v_down))
+                    dx = float((np.log(v_left) - np.log(v_right)) / denom_x) if abs(denom_x) > 1e-5 else 0.0
+                    dy = float((np.log(v_up) - np.log(v_down)) / denom_y) if abs(denom_y) > 1e-5 else 0.0
+                    dx = np.clip(dx, -0.6, 0.6)
+                    dy = np.clip(dy, -0.6, 0.6)
+                    final_x = float(p_x + dx) + rx1 + crop_x0
+                    final_y = float(p_y + dy) + ry1 + crop_y0
+                else:
+                    final_x = iwc_x + rx1 + crop_x0
+                    final_y = iwc_y + ry1 + crop_y0
+            else:
+                final_x = iwc_x + rx1 + crop_x0
+                final_y = iwc_y + ry1 + crop_y0
+
+        elif algo == TrackingAlgorithm.CORRELATION_NCC:
+            # Normalized Cross-Correlation Template Matching
+            if self.target_template is None:
+                # Initialize template around candidate
+                tpad = self.template_size // 2
+                tx1 = max(0, lbx + lbw // 2 - tpad)
+                ty1 = max(0, lby + lbh // 2 - tpad)
+                tx2 = min(sw, tx1 + self.template_size)
+                ty2 = min(sh, ty1 + self.template_size)
+                if (tx2 - tx1) == self.template_size and (ty2 - ty1) == self.template_size:
+                    self.target_template = filtered[ty1:ty2, tx1:tx2].copy()
+            else:
+                # Run template matching in search frame
+                if search_frame.shape[0] >= self.template_size and search_frame.shape[1] >= self.template_size:
+                    res = cv2.matchTemplate(search_frame, self.target_template, cv2.TM_CCOEFF_NORMED)
+                    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+                    if max_val > 0.4:
+                        final_x = float(max_loc[0] + self.template_size / 2.0 + crop_x0)
+                        final_y = float(max_loc[1] + self.template_size / 2.0 + crop_y0)
+
+        # Compute SNR (dB) & confidence metric
         noise_floor = max(1.0, std_bg)
         signal_level = max(1.0, best["peak"] - mean_bg)
         snr_db = float(20.0 * np.log10(signal_level / noise_floor))
@@ -149,10 +249,12 @@ class BeaconDetector:
 
         return DetectionResult(
             detected=True,
-            x=sub_x,
-            y=sub_y,
-            bbox=(bx, by, bw, bh),
+            x=final_x,
+            y=final_y,
+            bbox=(gbx, gby, gbw, gbh),
+            gate_bbox=gate_box,
             confidence=confidence,
             peak_intensity=best["peak"],
-            snr_db=snr_db
+            snr_db=snr_db,
+            algorithm_used=algo.value
         )
