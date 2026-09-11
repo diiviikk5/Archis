@@ -1,0 +1,15 @@
+name: Python CI Test Suite
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install dependencies
+        run: pip install pytest numpy opencv-python pyqt6 pyqtgraph scipy
+      - name: Run unit tests
+        run: pytest archis_tracker/tests -v
