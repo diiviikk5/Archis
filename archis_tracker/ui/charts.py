@@ -1,6 +1,7 @@
-"""
+﻿"""
 Archis Optical Tracker - Real-time Telemetry Charts
-High-performance dynamic strip charts using pyqtgraph for tracking error, gimbal angles, and FPS.
+High-performance dynamic strip charts using pyqtgraph for tracking error,
+gimbal angles, system frame rates, and Jitter Power Spectral Density (FFT).
 """
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTabWidget
 import pyqtgraph as pg
@@ -22,7 +23,6 @@ class TelemetryChartsWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        # Tab widget for multiple chart views
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
         
@@ -56,6 +56,14 @@ class TelemetryChartsWidget(QWidget):
         self.curve_fps = self.plot_perf.plot(pen=pg.mkPen(color='#4ade80', width=1.5), name="FPS")
         self.curve_speed = self.plot_perf.plot(pen=pg.mkPen(color='#f43f5e', width=1.5), name="Target Speed (px/s)")
         self.tabs.addTab(self.plot_perf, "Performance & Speed")
+        
+        # Tab 4: Jitter Power Spectrum (FFT)
+        self.plot_fft = pg.PlotWidget(title="JITTER & ERROR POWER SPECTRAL DENSITY (FFT)")
+        self.plot_fft.showGrid(x=True, y=True, alpha=0.25)
+        self.plot_fft.setLabel('left', 'Power (dB)')
+        self.plot_fft.setLabel('bottom', 'Frequency', units='Hz')
+        self.curve_fft = self.plot_fft.plot(pen=pg.mkPen(color='#ec4899', width=1.5), fillLevel=-40, fillBrush=pg.mkBrush(236, 72, 153, 50))
+        self.tabs.addTab(self.plot_fft, "Jitter Spectrum (FFT)")
 
     def update_data(self, times: Deque[float], errors: Deque[float],
                     pans: Deque[float], tilts: Deque[float],
@@ -65,9 +73,8 @@ class TelemetryChartsWidget(QWidget):
             return
             
         t_arr = np.array(times)
-        
-        # Only update active tab to maximize render efficiency
         current_idx = self.tabs.currentIndex()
+        
         if current_idx == 0:
             self.curve_error.setData(t_arr, np.array(errors))
         elif current_idx == 1:
@@ -76,3 +83,14 @@ class TelemetryChartsWidget(QWidget):
         elif current_idx == 2:
             self.curve_fps.setData(t_arr, np.array(fps_list))
             self.curve_speed.setData(t_arr, np.array(speeds))
+        elif current_idx == 3:
+            # Compute real-time FFT on last 128 error points
+            err_arr = np.array(errors)
+            if len(err_arr) >= 32:
+                n = min(128, len(err_arr))
+                segment = err_arr[-n:] - np.mean(err_arr[-n:])
+                fft_vals = np.abs(np.fft.rfft(segment))
+                freqs = np.fft.rfftfreq(n, d=1.0 / 30.0)
+                # Convert to dB scale
+                psd_db = 20.0 * np.log10(np.maximum(1e-3, fft_vals))
+                self.curve_fft.setData(freqs, psd_db)
