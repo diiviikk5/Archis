@@ -4,6 +4,7 @@ Coordinates Environment, Multi-Target Manager, Gimbal-Camera, Disturbances,
 Multi-Algorithm Detector, 6-State EKF, Dual-Loop Controller, and Telemetry.
 """
 import numpy as np
+import cv2
 import time
 from typing import Tuple, List, Optional
 from .config import (CameraConfig, EnvironmentConfig, TargetConfig, 
@@ -241,3 +242,61 @@ class TrackingSystem:
         )
         
         return det
+
+    def step_external_frame(self, frame: np.ndarray, dt: float) -> DetectionResult:
+        """Track a video frame while bypassing virtual target and PTZ generation."""
+        start_t = time.perf_counter()
+        self.sim_time += dt
+        self.state_timer += dt
+        if frame.ndim == 3:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        if frame.shape != (self.cam_config.viewport_height, self.cam_config.viewport_width):
+            frame = cv2.resize(
+                frame,
+                (self.cam_config.viewport_width, self.cam_config.viewport_height),
+                interpolation=cv2.INTER_AREA,
+            )
+        self.current_frame = np.clip(frame, 0, 255).astype(np.uint8)
+
+        pred_x, pred_y = self.kalman.predict(dt)
+        self.latest_pred_x, self.latest_pred_y = pred_x, pred_y
+        detection = self.detector.detect(
+            self.current_frame,
+            predicted_pos=(pred_x, pred_y),
+            cov_matrix=self.kalman.innovation_covariance,
+        )
+        self.last_detection = detection
+        if detection.detected:
+            self.kalman.update(detection.x, detection.y, confidence=detection.confidence)
+            if self.state != TrackingState.TRACKING:
+                self.state = TrackingState.TRACKING
+                self.state_timer = 0.0
+        elif self.state == TrackingState.TRACKING:
+            self.state = TrackingState.DEAD_RECKONING
+            self.state_timer = 0.0
+        elif self.state == TrackingState.DEAD_RECKONING and self.state_timer > 0.4:
+            self.state = TrackingState.SEARCHING
+            self.state_timer = 0.0
+        elif self.state == TrackingState.SEARCHING and self.state_timer > self.ctrl_config.search_timeout_s:
+            self.state = TrackingState.LOST
+
+        latency_ms = (time.perf_counter() - start_t) * 1000.0
+        measured_x = detection.x if detection.detected else pred_x
+        measured_y = detection.y if detection.detected else pred_y
+        self.telemetry.record_frame(
+            t_sim=self.sim_time,
+            state=self.state,
+            target_in_fov=detection.detected,
+            detected=detection.detected,
+            measured_x=measured_x,
+            measured_y=measured_y,
+            center_x=self.cam_config.center_x,
+            center_y=self.cam_config.center_y,
+            pan_deg=0.0,
+            tilt_deg=0.0,
+            target_speed=0.0,
+            fps=1.0 / max(1e-4, dt),
+            latency_ms=latency_ms,
+            snr_db=detection.snr_db,
+        )
+        return detection

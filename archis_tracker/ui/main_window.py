@@ -7,13 +7,14 @@ import time
 from PyQt6.QtCore import QSettings, QStandardPaths, Qt, QTimer, QUrl
 from PyQt6.QtGui import QAction, QDesktopServices
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton,
+    QFrame, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton,
     QSizePolicy, QSplitter, QStatusBar, QVBoxLayout, QWidget,
 )
 
 from ..core.config import TrackingState
 from ..core.presets import PresetError
 from ..core.tracker import TrackingSystem
+from ..core.video_source import VideoSource, VideoSourceError
 from .charts import TelemetryChartsWidget
 from .control_panel import ControlPanelWidget
 from .minimap import MinimapWidget
@@ -33,6 +34,7 @@ class MainWindow(QMainWindow):
         self.settings = QSettings("Archis", "OpticalTracker")
         self.tracker = TrackingSystem()
         self.is_running = False
+        self.video_source = None
 
         reports_root = os.path.join(
             QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation),
@@ -140,6 +142,10 @@ class MainWindow(QMainWindow):
         self.engine_badge = QLabel("ENGINE READY")
         self.engine_badge.setObjectName("engineBadge")
         layout.addWidget(self.engine_badge)
+        self.source_button = QPushButton("Open MP4")
+        self.source_button.setObjectName("secondaryButton")
+        self.source_button.clicked.connect(self._open_video)
+        layout.addWidget(self.source_button)
         for text, callback in (("Quick start", self._show_onboarding), ("Open reports", self._open_reports)):
             button = QPushButton(text)
             button.setObjectName("secondaryButton")
@@ -209,11 +215,34 @@ class MainWindow(QMainWindow):
     def _reset_run(self):
         self._set_running(False)
         self.tracker.reset()
+        if self.video_source:
+            self.video_source.rewind()
         self.charts.clear_data()
         self.status_bar.showMessage("Run reset. Scenario configuration was preserved.")
 
     def _open_reports(self):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.session_dir)))
+
+    def _open_video(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open evaluator video", "", "Video files (*.mp4 *.avi *.mov *.mkv)"
+        )
+        if not path:
+            return
+        try:
+            source = VideoSource(path)
+        except VideoSourceError as exc:
+            QMessageBox.warning(self, "Video could not be opened", str(exc))
+            return
+        if self.video_source:
+            self.video_source.close()
+        self.video_source = source
+        self.tracker.reset()
+        self.sim_timer.setInterval(max(1, round(1000.0 / source.fps)))
+        self.source_button.setText("Video: " + source.path.name[:20])
+        self.status_bar.showMessage(
+            f"Video input ready: {source.width}x{source.height} at {source.fps:.2f} FPS. Press Start run."
+        )
 
     def _on_viewport_designated(self, vx: float, vy: float):
         wx, wy = self.tracker.camera.viewport_to_world(vx, vy)
@@ -258,7 +287,16 @@ class MainWindow(QMainWindow):
         now = time.perf_counter()
         dt = max(0.005, min(0.1, now - self.last_tick_time))
         self.last_tick_time = now
-        detection = self.tracker.step(dt) if self.is_running else self.tracker.last_detection
+        detection = self.tracker.last_detection
+        if self.is_running and self.video_source:
+            frame = self.video_source.read()
+            if frame is None:
+                self._set_running(False)
+                self.status_bar.showMessage("Video evaluation complete. Run reports are ready.")
+            else:
+                detection = self.tracker.step_external_frame(frame, 1.0 / self.video_source.fps)
+        elif self.is_running:
+            detection = self.tracker.step(dt)
         state = self.tracker.state if self.is_running else TrackingState.IDLE
         telemetry = self.tracker.telemetry
         self.viewport.update_frame(
@@ -292,6 +330,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.sim_timer.stop()
+        if self.video_source:
+            self.video_source.close()
         self.tracker.telemetry.stop_logging()
         self.tracker.telemetry.finish_session()
         event.accept()
