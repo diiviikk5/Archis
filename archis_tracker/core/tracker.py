@@ -1,14 +1,16 @@
-"""
-Archis Optical Tracker - Integrated Tracking System Engine
-Coordinates Environment, Target, Camera, Disturbances, Detector, Kalman Filter, Controller, and Telemetry.
+﻿"""
+Archis Optical Tracker - Integrated Production Tracking System Engine
+Coordinates Environment, Multi-Target Manager, Gimbal-Camera, Disturbances,
+Multi-Algorithm Detector, 6-State EKF, Dual-Loop Controller, and Telemetry.
 """
 import numpy as np
 import time
 from typing import Tuple, List, Optional
 from .config import (CameraConfig, EnvironmentConfig, TargetConfig, 
-                     DisturbanceConfig, ControllerConfig, TrackingState)
+                     DisturbanceConfig, ControllerConfig, DetectorConfig,
+                     TrackingState, TrackingAlgorithm, AGCMode)
 from .environment import VirtualEnvironment
-from .target import TargetBeacon
+from .target import TargetBeacon, TargetManager
 from .camera import VirtualCamera
 from .disturbances import DisturbanceEngine
 from .detector import BeaconDetector, DetectionResult
@@ -22,27 +24,27 @@ class TrackingSystem:
                  env_config: Optional[EnvironmentConfig] = None,
                  target_config: Optional[TargetConfig] = None,
                  disturb_config: Optional[DisturbanceConfig] = None,
-                 ctrl_config: Optional[ControllerConfig] = None):
+                 ctrl_config: Optional[ControllerConfig] = None,
+                 det_config: Optional[DetectorConfig] = None):
                  
         self.cam_config = cam_config or CameraConfig()
         self.env_config = env_config or EnvironmentConfig()
         self.target_config = target_config or TargetConfig()
         self.disturb_config = disturb_config or DisturbanceConfig()
         self.ctrl_config = ctrl_config or ControllerConfig()
+        self.det_config = det_config or DetectorConfig()
         
         # Sub-systems
         self.environment = VirtualEnvironment(self.env_config)
         self.camera = VirtualCamera(self.cam_config, self.env_config)
         self.disturbances = DisturbanceEngine(self.disturb_config)
-        self.detector = BeaconDetector()
+        self.detector = BeaconDetector(self.det_config)
         self.kalman = KalmanFilter2D()
         self.controller = GimbalController(self.ctrl_config, self.cam_config)
         self.telemetry = TelemetryEngine()
         
-        # Primary target
-        self.primary_target = TargetBeacon(0, self.target_config, is_primary=True)
-        # Secondary decoy targets (optional)
-        self.secondary_targets: List[TargetBeacon] = []
+        # Multi-Target Coordinator
+        self.target_manager = TargetManager(self.target_config)
         
         # Tracking State Machine
         self.state: TrackingState = TrackingState.ACQUIRING
@@ -58,39 +60,66 @@ class TrackingSystem:
         # Closed-loop tracking autonomous toggle
         self.is_autonomous_tracking: bool = True
 
+    @property
+    def primary_target(self) -> TargetBeacon:
+        return self.target_manager.primary_target
+
+    @property
+    def secondary_targets(self) -> List[TargetBeacon]:
+        return self.target_manager.secondary_targets
+
     def reset(self):
         """Resets the entire system to initial baseline parameters."""
         self.camera.reset()
-        self.primary_target.reset_position(1000.0, 1000.0)
-        self.secondary_targets.clear()
+        self.target_manager.primary_target.reset_position(1000.0, 1000.0)
+        self.target_manager.clear_decoys()
         self.kalman.reset(320.0, 240.0)
         self.controller.reset()
         self.telemetry.reset()
+        self.detector.target_template = None
         self.state = TrackingState.ACQUIRING
         self.state_timer = 0.0
         self.sim_time = 0.0
 
+    def spawn_decoy(self, world_x: float, world_y: float, **kwargs) -> TargetBeacon:
+        """Injects a secondary optical decoy into the virtual scene."""
+        return self.target_manager.add_decoy(world_x, world_y, **kwargs)
+
+    def clear_decoys(self):
+        self.target_manager.clear_decoys()
+
+    def designate_target_at(self, world_x: float, world_y: float):
+        """Promotes the target closest to (world_x, world_y) to primary lock."""
+        new_pri = self.target_manager.designate_nearest(world_x, world_y)
+        if new_pri:
+            # Re-init Kalman filter on new target viewport projection
+            vx, vy = self.camera.world_to_viewport(new_pri.x, new_pri.y)
+            self.kalman.reset(vx, vy)
+            self.detector.target_template = None
+            self.state = TrackingState.ACQUIRING
+            self.state_timer = 0.0
+
+    def move_primary_to(self, world_x: float, world_y: float):
+        """Manually moves/drags the primary target to test sudden re-acquisition."""
+        self.primary_target.x = world_x
+        self.primary_target.y = world_y
+        self.primary_target.center_x = world_x
+        self.primary_target.center_y = world_y
+
+    def set_algorithm(self, algo: TrackingAlgorithm):
+        self.detector.config.algorithm = algo
+        self.detector.target_template = None
+
+    def set_agc_mode(self, mode: AGCMode):
+        self.detector.config.agc_mode = mode
+
     def step(self, dt: float) -> DetectionResult:
-        """
-        Executes one full simulation and tracking cycle at update rate dt:
-        1. Update targets kinematics
-        2. Apply disturbances (jitter, platform motion)
-        3. Render virtual camera viewport (640x480)
-        4. Apply atmospheric and image noise
-        5. Detect beacon spot via computer vision
-        6. Update Kalman Filter state
-        7. State machine transitions
-        8. Closed-loop gimbal control
-        9. Telemetry recording
-        """
         start_t = time.perf_counter()
         self.sim_time += dt
         self.state_timer += dt
         
         # 1. Update targets kinematics
-        self.primary_target.update(dt, self.env_config.screen_width, self.env_config.screen_height)
-        for sec in self.secondary_targets:
-            sec.update(dt, self.env_config.screen_width, self.env_config.screen_height)
+        self.target_manager.update(dt, self.env_config.screen_width, self.env_config.screen_height)
             
         # 2. Update disturbances (jitter & platform motion)
         (jit_x, jit_y), (plat_x, plat_y) = self.disturbances.update(dt)
@@ -106,10 +135,8 @@ class TrackingSystem:
             self.camera.width, self.camera.height
         )
         
-        # Render targets
-        for sec in self.secondary_targets:
-            sec.render_onto_viewport(canvas, self.camera.world_x, self.camera.world_y)
-        self.primary_target.render_onto_viewport(canvas, self.camera.world_x, self.camera.world_y)
+        # Render primary target and all secondary decoys
+        self.target_manager.render_all_onto_viewport(canvas, self.camera.world_x, self.camera.world_y)
         
         # 4. Apply atmospheric disturbance and image noise
         self.current_frame = self.disturbances.apply_disturbances_to_frame(canvas)
@@ -118,8 +145,9 @@ class TrackingSystem:
         pred_x, pred_y = self.kalman.predict(dt)
         self.latest_pred_x, self.latest_pred_y = pred_x, pred_y
         
-        # 6. Computer Vision Detection
-        det = self.detector.detect(self.current_frame, predicted_pos=(pred_x, pred_y))
+        # 6. Computer Vision Detection with Innovation Gating
+        cov_s = self.kalman.innovation_covariance
+        det = self.detector.detect(self.current_frame, predicted_pos=(pred_x, pred_y), cov_matrix=cov_s)
         self.last_detection = det
         
         # 7. State Machine & Kalman Update
@@ -136,7 +164,6 @@ class TrackingSystem:
         else:
             # Target not detected in current frame
             if self.state == TrackingState.TRACKING:
-                # Transition to Dead Reckoning for short occlusion
                 self.state = TrackingState.DEAD_RECKONING
                 self.state_timer = 0.0
                 
@@ -148,14 +175,12 @@ class TrackingSystem:
                     self.state_timer = 0.0
                     
             elif self.state == TrackingState.SEARCHING:
-                # If search times out > 3.5s, mark as lost
                 if self.state_timer > self.ctrl_config.search_timeout_s:
                     self.state = TrackingState.LOST
 
         # 8. Closed-Loop Gimbal Camera Control
         if self.is_autonomous_tracking:
             if self.state in [TrackingState.ACQUIRING, TrackingState.TRACKING]:
-                # Track detected position with PID + Kalman feedforward
                 tx = det.x if det.detected else pred_x
                 ty = det.y if det.detected else pred_y
                 vx, vy = self.kalman.velocity
@@ -172,7 +197,6 @@ class TrackingSystem:
                 self.camera.apply_pan_tilt_command(cmd_pan, cmd_tilt, dt)
                 
             elif self.state == TrackingState.DEAD_RECKONING:
-                # Drive camera according to EKF predicted trajectory
                 vx, vy = self.kalman.velocity
                 cmd_pan, cmd_tilt = self.controller.compute_tracking_command(
                     pred_x, pred_y, vx, vy, dt
@@ -180,7 +204,6 @@ class TrackingSystem:
                 self.camera.apply_pan_tilt_command(cmd_pan, cmd_tilt, dt)
                 
             elif self.state == TrackingState.SEARCHING:
-                # Execute rapid spiral search pattern
                 cmd_pan, cmd_tilt = self.controller.compute_search_command(dt)
                 self.camera.apply_pan_tilt_command(cmd_pan, cmd_tilt, dt)
 
