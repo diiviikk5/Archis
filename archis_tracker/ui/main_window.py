@@ -1,4 +1,4 @@
-"""
+﻿"""
 Archis Optical Tracker - Master Application Window
 Integrates Viewport, Minimap, Telemetry Dashboard, PyQTGraph Charts, and Control Panel.
 """
@@ -7,6 +7,8 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QIcon, QAction
 import sys
+import os
+import json
 import time
 
 from ..core.tracker import TrackingSystem
@@ -22,7 +24,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Archis FSOC Optical Tracker // Autonomous Camera Tracking System")
-        self.resize(1340, 880)
+        self.resize(1380, 900)
         self.setStyleSheet(DARK_THEME_QSS)
         
         # 1. Initialize Tracking Engine
@@ -50,10 +52,14 @@ class MainWindow(QMainWindow):
         center_row.setSpacing(8)
         
         self.viewport = ViewportWidget()
+        self.viewport.designate_target_signal.connect(self._on_viewport_designated)
+        self.viewport.spawn_decoy_signal.connect(self._on_viewport_spawn_decoy)
         center_row.addWidget(self.viewport, stretch=3)
         
         self.minimap = MinimapWidget()
         self.minimap.set_references(self.tracker.primary_target, self.tracker.camera, self.tracker.secondary_targets)
+        self.minimap.designate_world_signal.connect(self._on_minimap_designated)
+        self.minimap.spawn_decoy_world_signal.connect(self._on_minimap_spawn_decoy)
         center_row.addWidget(self.minimap, stretch=1)
         
         left_layout.addLayout(center_row, stretch=3)
@@ -66,6 +72,9 @@ class MainWindow(QMainWindow):
         
         # Right Control Panel
         self.control_panel = ControlPanelWidget(self.tracker)
+        self.control_panel.preset_selected_signal.connect(self._load_preset)
+        self.control_panel.start_log_signal.connect(self._start_csv_logging)
+        self.control_panel.stop_log_signal.connect(self._stop_csv_logging)
         root_layout.addWidget(self.control_panel, stretch=1)
         
         # Status Bar
@@ -78,6 +87,46 @@ class MainWindow(QMainWindow):
         self.sim_timer.timeout.connect(self._simulation_tick)
         self.last_tick_time = time.perf_counter()
         self.sim_timer.start(int(1000.0 / self.tracker.cam_config.update_rate_hz))
+
+    def _on_viewport_designated(self, vx: float, vy: float):
+        wx, wy = self.tracker.camera.viewport_to_world(vx, vy)
+        self.tracker.designate_target_at(wx, wy)
+        self.status_bar.showMessage(f"TARGET DESIGNATED AT WORLD ({wx:.0f}, {wy:.0f})", 3000)
+
+    def _on_viewport_spawn_decoy(self, vx: float, vy: float):
+        wx, wy = self.tracker.camera.viewport_to_world(vx, vy)
+        self.tracker.spawn_decoy(wx, wy)
+        self.status_bar.showMessage(f"OPTICAL DECOY INJECTED AT WORLD ({wx:.0f}, {wy:.0f})", 3000)
+
+    def _on_minimap_designated(self, wx: float, wy: float):
+        self.tracker.designate_target_at(wx, wy)
+        self.status_bar.showMessage(f"PRIMARY TARGET DESIGNATED: ({wx:.0f}, {wy:.0f})", 3000)
+
+    def _on_minimap_spawn_decoy(self, wx: float, wy: float):
+        self.tracker.spawn_decoy(wx, wy)
+        self.status_bar.showMessage(f"DECOY INJECTED ON RADAR MAP: ({wx:.0f}, {wy:.0f})", 3000)
+
+    def _start_csv_logging(self, filename: str):
+        self.tracker.telemetry.start_logging(filename)
+        self.status_bar.showMessage(f"LOGGING FLIGHT TELEMETRY TO: {filename}", 4000)
+
+    def _stop_csv_logging(self):
+        self.tracker.telemetry.stop_logging()
+        self.status_bar.showMessage("TELEMETRY LOG RECORDING FINISHED AND SAVED", 4000)
+
+    def _load_preset(self, preset_filename: str):
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(base_dir, "presets", preset_filename)
+        if not os.path.exists(path):
+            self.status_bar.showMessage(f"Preset not found: {preset_filename}", 3000)
+            return
+            
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+            self.status_bar.showMessage(f"LOADED MISSION SCENARIO: {data.get('name', preset_filename)}", 4000)
+        except Exception as e:
+            self.status_bar.showMessage(f"Error loading preset: {e}", 3000)
 
     def _simulation_tick(self):
         """Executes one real-time tracking cycle and updates UI widgets."""
