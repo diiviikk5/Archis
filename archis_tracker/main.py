@@ -35,9 +35,13 @@ def run_benchmark(duration_s: float = 10.0):
     tracker = TrackingSystem()
     dt = 1.0 / 30.0
     total_steps = int(duration_s / dt)
+    dropout_start_s = min(2.0, duration_s * 0.45)
+    dropout_end_s = dropout_start_s + 0.3
     
     start_real = time.perf_counter()
     for step_idx in range(total_steps):
+        step_time = step_idx * dt
+        tracker.sensor_obscured = dropout_start_s <= step_time < dropout_end_s
         tracker.step(dt)
         if step_idx % 60 == 0:
             print(f"  Step {step_idx:4d}/{total_steps} | State: {tracker.state.value:<25} | Error: {tracker.telemetry.current_error_px:4.1f} px | RMS: {tracker.telemetry.rms_error_px:4.1f} px")
@@ -65,7 +69,10 @@ def run_benchmark(duration_s: float = 10.0):
     print(f"  3. Target Loss Rate:      {summary['target_loss_pct']:6.2f} %   (Spec: < 5.0 %)   -> {loss_status}")
     
     # 4. Re-acquisition Time
-    reacq_status = "PASSED [PASS]" if summary["reacquisition_passed"] else "FAILED [FAIL]"
+    if summary["reacquisition_evaluated"]:
+        reacq_status = "PASSED [PASS]" if summary["reacquisition_passed"] else "FAILED [FAIL]"
+    else:
+        reacq_status = "NOT EVALUATED"
     print(f"  4. Re-acquisition Time:   {summary['reacquisition_time_s']:6.2f} s   (Spec: <= 1.0 s)  -> {reacq_status}")
     
     # 5. Processing Speed
@@ -76,7 +83,7 @@ def run_benchmark(duration_s: float = 10.0):
     all_passed = (summary["acquisition_passed"] and summary["error_passed"] and 
                   summary["loss_passed"] and summary["reacquisition_passed"] and real_fps >= 20.0)
     if all_passed:
-        print("  VERDICT: ALL OFFICIAL SPECIFICATIONS MET WITH EXCELLENCE! [10/10]")
+        print("  VERDICT: ALL FIVE MEASURED SPECIFICATION THRESHOLDS PASSED.")
     else:
         print("  VERDICT: BENCHMARK COMPLETED WITH NOTED DEVIATIONS.")
     print("=" * 72)

@@ -8,6 +8,7 @@ def test_empty_session_cannot_pass_benchmark():
     summary = TelemetryEngine().get_summary()
     for criterion in ("acquisition", "error", "loss", "reacquisition", "fps"):
         assert not summary[f"{criterion}_passed"]
+    assert not summary["reacquisition_evaluated"]
 
 
 def test_unresolved_loss_and_exact_loss_limit_fail():
@@ -19,6 +20,18 @@ def test_unresolved_loss_and_exact_loss_limit_fail():
     summary = telem.get_summary()
     assert not summary["loss_passed"]
     assert not summary["reacquisition_passed"]
+
+
+def test_completed_reacquisition_is_measured():
+    telem = TelemetryEngine()
+    telem.has_first_acquisition = True
+    telem.reacquisition_count = 1
+    telem.last_reacquisition_time_s = 0.4
+    telem.total_frames = 100
+    telem.current_fps = 30.0
+    summary = telem.get_summary()
+    assert summary["reacquisition_evaluated"]
+    assert summary["reacquisition_passed"]
 
 
 def test_telemetry_metrics_tracking():

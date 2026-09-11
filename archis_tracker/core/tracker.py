@@ -60,6 +60,7 @@ class TrackingSystem:
         
         # Closed-loop tracking autonomous toggle
         self.is_autonomous_tracking: bool = True
+        self.sensor_obscured: bool = False
 
     @property
     def primary_target(self) -> TargetBeacon:
@@ -81,6 +82,7 @@ class TrackingSystem:
         self.state = TrackingState.ACQUIRING
         self.state_timer = 0.0
         self.sim_time = 0.0
+        self.sensor_obscured = False
 
     def spawn_decoy(self, world_x: float, world_y: float, **kwargs) -> TargetBeacon:
         """Injects a secondary optical decoy into the virtual scene."""
@@ -144,6 +146,8 @@ class TrackingSystem:
         
         # 4. Apply atmospheric disturbance and image noise
         self.current_frame = self.disturbances.apply_disturbances_to_frame(canvas)
+        if self.sensor_obscured:
+            self.current_frame.fill(0)
         
         # 5. Kalman Filter Prediction
         pred_x, pred_y = self.kalman.predict(dt)

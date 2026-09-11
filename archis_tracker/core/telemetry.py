@@ -183,7 +183,8 @@ class TelemetryEngine:
             "target_loss_pct": self.target_loss_pct,
             "loss_passed": self.total_frames > 0 and self.target_loss_pct < self.thresholds.max_target_loss_pct,
             "reacquisition_time_s": self.last_reacquisition_time_s,
-            "reacquisition_passed": self.has_first_acquisition and self.loss_start_time is None and self.last_reacquisition_time_s <= self.thresholds.max_reacquisition_time_s,
+            "reacquisition_evaluated": self.reacquisition_count > 0,
+            "reacquisition_passed": self.reacquisition_count > 0 and self.loss_start_time is None and self.last_reacquisition_time_s <= self.thresholds.max_reacquisition_time_s,
             "fps": self.current_fps,
             "fps_passed": self.total_frames > 0 and self.current_fps >= self.thresholds.min_processing_fps
         }
