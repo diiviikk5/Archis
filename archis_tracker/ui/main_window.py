@@ -1,4 +1,7 @@
-"""Primary desktop operator workspace for Archis optical tracking."""
+"""
+Primary desktop operator workspace for Archis optical tracking.
+Built with Microsoft Windows 11 Fluent Design Architecture (MSFluentWindow).
+"""
 from __future__ import annotations
 
 import os
@@ -6,29 +9,25 @@ import time
 
 from PyQt6.QtCore import QSettings, QStandardPaths, Qt, QTimer, QUrl
 from PyQt6.QtGui import QAction, QDesktopServices
-from PyQt6.QtWidgets import (
-    QFrame, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
-    QSizePolicy, QSplitter, QStatusBar, QVBoxLayout, QWidget,
-)
+from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from qfluentwidgets import (
-    PrimaryPushButton, PushButton, FluentIcon as FI, InfoBar, InfoBarPosition,
+    MSFluentWindow, FluentIcon as FIF, NavigationItemPosition,
+    InfoBar, InfoBarPosition,
 )
 
 from ..core.config import TrackingState
 from ..core.presets import PresetError
 from ..core.tracker import TrackingSystem
 from ..core.video_source import VideoSource, VideoSourceError
-from .charts import TelemetryChartsWidget
 from .control_panel import ControlPanelWidget
-from .minimap import MinimapWidget
 from .onboarding import OnboardingDialog
 from .style import DARK_THEME_QSS, init_fluent_theme
-from .telemetry_display import TelemetryDashboard
-from .viewport import ViewportWidget
-from .workspaces import DesktopWorkspaces
+from .workspaces import (
+    HomeInterface, SetupInterface, TrackingInterface, ReviewInterface,
+)
 
 
-class MainWindow(QMainWindow):
+class MainWindow(MSFluentWindow):
     def __init__(self):
         super().__init__()
         init_fluent_theme()
@@ -47,134 +46,72 @@ class MainWindow(QMainWindow):
             "Archis Tracker", "Reports",
         )
         self.session_dir = self.tracker.telemetry.start_session(reports_root)
-        self._build_workspace()
+
+        # Embedded control panel holding backend widgets
+        self.control_panel = ControlPanelWidget(self.tracker)
+        self.control_panel.preset_selected_signal.connect(self._load_preset)
+        self.control_panel.start_log_signal.connect(self._start_csv_logging)
+        self.control_panel.stop_log_signal.connect(self._stop_csv_logging)
+        self.control_panel.hide()
+
+        # Build modular sub-interfaces
+        self.home_interface = HomeInterface(self)
+        self.setup_interface = SetupInterface(self)
+        self.tracking_interface = TrackingInterface(self)
+        self.review_interface = ReviewInterface(self)
+
+        # Map tracking handles
+        self.telemetry_bar = self.tracking_interface.telemetry_bar
+        self.viewport = self.tracking_interface.viewport
+        self.minimap = self.tracking_interface.minimap
+        self.charts = self.tracking_interface.charts
+        self.run_button = self.tracking_interface.run_button
+        self.reset_button = self.tracking_interface.reset_button
+        self.source_button = self.tracking_interface.source_button
+        self.engine_badge = self.tracking_interface.engine_badge
+
+        # Register sub-interfaces with MSFluentWindow
+        self.addSubInterface(self.home_interface, FIF.HOME, "Home")
+        self.addSubInterface(self.setup_interface, FIF.SETTING, "Mission Setup")
+        self.addSubInterface(self.tracking_interface, FIF.CAMERA, "Live Tracking")
+        self.addSubInterface(self.review_interface, FIF.DOCUMENT, "Run Review")
+
+        # Bottom navigation utility items
+        self.navigationInterface.addItem(
+            routeKey="quickstart",
+            icon=FIF.HELP,
+            text="Quick Start Guide",
+            onClick=self._show_onboarding,
+            position=NavigationItemPosition.BOTTOM,
+        )
+        self.navigationInterface.addItem(
+            routeKey="evidence",
+            icon=FIF.FOLDER,
+            text="Evidence Reports",
+            onClick=self._open_reports,
+            position=NavigationItemPosition.BOTTOM,
+        )
+
         self._build_shortcuts()
 
+        # Simulation tick timer (30 Hz minimum)
         self.sim_timer = QTimer(self)
         self.sim_timer.timeout.connect(self._simulation_tick)
         self.last_tick_time = time.perf_counter()
         self.sim_timer.start(round(1000.0 / self.tracker.cam_config.update_rate_hz))
         self._update_run_state()
+
         if not self.settings.value("onboarding_complete", False, type=bool):
             QTimer.singleShot(250, self._show_onboarding)
 
-    def _build_workspace(self):
-        central = QWidget()
-        self.setCentralWidget(central)
-        root = QVBoxLayout(central)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-        root.addWidget(self._build_header())
-        self.phase_strip = self._build_phase_strip()
-        self.phase_strip.setParent(self)
-        self.phase_strip.hide()
+    def show_info_toast(self, title: str, content: str):
+        InfoBar.info(title=title, content=content, duration=3500, parent=self, position=InfoBarPosition.TOP_RIGHT)
 
-        workspace = QSplitter(Qt.Orientation.Horizontal)
-        workspace.setObjectName("workspaceSplitter")
-        workspace.setChildrenCollapsible(False)
-        self.control_panel = ControlPanelWidget(self.tracker)
-        self.control_panel.setObjectName("missionPanel")
-        self.control_panel.setMinimumWidth(290)
-        self.control_panel.setMaximumWidth(370)
-        self.control_panel.preset_selected_signal.connect(self._load_preset)
-        self.control_panel.start_log_signal.connect(self._start_csv_logging)
-        self.control_panel.stop_log_signal.connect(self._stop_csv_logging)
-        self.control_panel.setParent(self)
-        self.control_panel.hide()
+    def show_success_toast(self, title: str, content: str):
+        InfoBar.success(title=title, content=content, duration=3000, parent=self, position=InfoBarPosition.TOP_RIGHT)
 
-        center = QWidget()
-        center.setObjectName("centerWorkspace")
-        center_layout = QVBoxLayout(center)
-        center_layout.setContentsMargins(14, 12, 14, 12)
-        center_layout.setSpacing(10)
-        self.telemetry_bar = TelemetryDashboard(self.tracker.telemetry.thresholds)
-        center_layout.addWidget(self.telemetry_bar)
-
-        optical_row = QSplitter(Qt.Orientation.Horizontal)
-        optical_row.setObjectName("opticalSplitter")
-        optical_row.setChildrenCollapsible(False)
-        self.viewport = ViewportWidget()
-        self.viewport.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.viewport.designate_target_signal.connect(self._on_viewport_designated)
-        self.viewport.spawn_decoy_signal.connect(self._on_viewport_spawn_decoy)
-        optical_row.addWidget(self.viewport)
-        self.minimap = MinimapWidget()
-        self.minimap.setMinimumWidth(220)
-        self.minimap.setMaximumWidth(310)
-        self.minimap.set_references(self.tracker.primary_target, self.tracker.camera, self.tracker.secondary_targets)
-        self.minimap.designate_world_signal.connect(self._on_minimap_designated)
-        self.minimap.spawn_decoy_world_signal.connect(self._on_minimap_spawn_decoy)
-        optical_row.addWidget(self.minimap)
-        optical_row.setStretchFactor(0, 5)
-        optical_row.setStretchFactor(1, 2)
-        center_layout.addWidget(optical_row, 5)
-        self.charts = TelemetryChartsWidget()
-        center_layout.addWidget(self.charts, 2)
-        self.desktop = DesktopWorkspaces(self, center)
-        root.addWidget(self.desktop, 1)
-
-        self.status_bar = QStatusBar()
-        self.status_bar.setSizeGripEnabled(False)
-        self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Ready. Choose a scenario, then start acquisition.")
-
-    def _build_header(self) -> QWidget:
-        header = QFrame()
-        header.setObjectName("appHeader")
-        layout = QHBoxLayout(header)
-        layout.setContentsMargins(16, 8, 16, 8)
-        layout.setSpacing(10)
-        mark = QLabel("A")
-        mark.setObjectName("brandMark")
-        mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        mark.setFixedSize(38, 38)
-        brand = QVBoxLayout()
-        brand.setSpacing(0)
-        title = QLabel("ARCHIS")
-        title.setObjectName("brandTitle")
-        subtitle = QLabel("OPTICAL TRACKING CONSOLE")
-        subtitle.setObjectName("brandSubtitle")
-        brand.addWidget(title)
-        brand.addWidget(subtitle)
-        layout.addWidget(mark)
-        layout.addLayout(brand)
-        divider = QFrame()
-        divider.setFrameShape(QFrame.Shape.VLine)
-        divider.setObjectName("headerDivider")
-        layout.addWidget(divider)
-        terminal = QLabel("Optical Tracking")
-        terminal.setObjectName("terminalLabel")
-        layout.addWidget(terminal)
-        layout.addStretch()
-        self.engine_badge = QLabel("ENGINE READY")
-        self.engine_badge.setObjectName("engineBadge")
-        layout.addWidget(self.engine_badge)
-        self.source_button = PushButton(FI.VIDEO, " Video Input")
-        self.source_button.clicked.connect(self._open_video)
-        layout.addWidget(self.source_button)
-        self.reset_button = PushButton(FI.SYNC, " Reset")
-        self.reset_button.clicked.connect(self._reset_run)
-        layout.addWidget(self.reset_button)
-        self.run_button = PrimaryPushButton(FI.PLAY, " Start Run")
-        self.run_button.setMinimumHeight(38)
-        self.run_button.clicked.connect(self._toggle_run)
-        layout.addWidget(self.run_button)
-        return header
-
-    def _build_phase_strip(self) -> QWidget:
-        strip = QFrame()
-        strip.setObjectName("phaseStrip")
-        layout = QHBoxLayout(strip)
-        layout.setContentsMargins(16, 0, 16, 0)
-        layout.setSpacing(0)
-        self.phase_labels = []
-        for index, text in enumerate(("1  CONFIGURE", "2  ACQUIRE", "3  TRACK", "4  REVIEW")):
-            label = QLabel(text)
-            label.setObjectName("phaseActive" if index == 0 else "phaseIdle")
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(label, 1)
-            self.phase_labels.append(label)
-        return strip
+    def show_warning_toast(self, title: str, content: str):
+        InfoBar.warning(title=title, content=content, duration=3500, parent=self, position=InfoBarPosition.TOP_RIGHT)
 
     def _build_shortcuts(self):
         for shortcut, callback in (("Space", self._toggle_run), ("Ctrl+R", self._reset_run)):
@@ -200,27 +137,21 @@ class MainWindow(QMainWindow):
             self.session_dir = self.tracker.telemetry.start_session(self.session_dir.parent)
         self.is_running = running
         if running:
-            self.desktop.navigate(2)
+            self.switchTo(self.tracking_interface)
         self.last_tick_time = time.perf_counter()
         self._update_run_state()
-        message = "Acquisition and tracking are running." if running else "Run paused. Configuration remains editable."
-        self.status_bar.showMessage(message)
 
     def _update_run_state(self):
         if self.is_running:
-            self.run_button.setIcon(FI.PAUSE.icon())
+            self.run_button.setIcon(FIF.PAUSE.icon())
             self.run_button.setText(" Pause Run")
-            self.engine_badge.setText("ENGINE RUNNING")
-            self.engine_badge.setStyleSheet("color: #34d399; background-color: #062319; border: 1px solid #059669; border-radius: 6px; padding: 5px 10px; font: 700 10px Consolas, monospace;")
+            self.engine_badge.setText("PAT STATE: LOCKED TRACKING")
+            self.engine_badge.setStyleSheet("color: #34d399; background-color: #062319; border: 1px solid #059669; border-radius: 6px; padding: 6px 12px; font: 700 11px Consolas, monospace;")
         else:
-            self.run_button.setIcon(FI.PLAY.icon())
+            self.run_button.setIcon(FIF.PLAY.icon())
             self.run_button.setText(" Start Run")
-            self.engine_badge.setText("ENGINE READY")
-            self.engine_badge.setStyleSheet("color: #38bdf8; background-color: #082032; border: 1px solid #0284c7; border-radius: 6px; padding: 5px 10px; font: 700 10px Consolas, monospace;")
-        self.phase_labels[1].setObjectName("phaseActive" if self.is_running else "phaseIdle")
-        for label in self.phase_labels:
-            label.style().unpolish(label)
-            label.style().polish(label)
+            self.engine_badge.setText("PAT STATE: ENGINE READY")
+            self.engine_badge.setStyleSheet("color: #38bdf8; background-color: #082032; border: 1px solid #0284c7; border-radius: 6px; padding: 6px 12px; font: 700 11px Consolas, monospace;")
 
     def _reset_run(self):
         self._set_running(False)
@@ -230,7 +161,7 @@ class MainWindow(QMainWindow):
         if self.video_source:
             self.video_source.rewind()
         self.charts.clear_data()
-        self.status_bar.showMessage("Run reset. Scenario configuration was preserved.")
+        self.show_info_toast("Run Reset", "Tracker reset to initial conditions. Scenarios preserved.")
 
     def _open_reports(self):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.session_dir)))
@@ -244,7 +175,7 @@ class MainWindow(QMainWindow):
         try:
             source = VideoSource(path)
         except VideoSourceError as exc:
-            QMessageBox.warning(self, "Video could not be opened", str(exc))
+            self.show_warning_toast("Video Error", str(exc))
             return
         if self.video_source:
             self.video_source.close()
@@ -254,49 +185,41 @@ class MainWindow(QMainWindow):
         self.tracker.reset()
         self.session_dir = self.tracker.telemetry.start_session(self.session_dir.parent)
         self.minimap.hide()
-        self.desktop.navigate(2)
+        self.switchTo(self.tracking_interface)
         self.sim_timer.setInterval(max(1, round(1000.0 / source.fps)))
         self.source_button.setText(" " + source.path.name[:16])
-        self.status_bar.showMessage(
-            f"Video input ready: {source.width}x{source.height} at {source.fps:.2f} FPS. Press Start run."
-        )
-        InfoBar.info(
-            title="Video Input Connected",
-            content=f"Loaded {source.path.name} ({source.width}x{source.height} @ {source.fps:.1f} FPS)",
-            duration=3500,
-            parent=self,
-            position=InfoBarPosition.TOP_RIGHT,
+        self.show_info_toast(
+            "Video Input Connected",
+            f"Loaded {source.path.name} ({source.width}x{source.height} @ {source.fps:.1f} FPS)",
         )
 
     def _on_viewport_designated(self, vx: float, vy: float):
         wx, wy = self.tracker.camera.viewport_to_world(vx, vy)
         self.tracker.designate_target_at(wx, wy)
-        self.status_bar.showMessage(f"Target designated at {wx:.0f}, {wy:.0f}.", 3000)
+        self.show_info_toast("Target Designated", f"Boresight target locked at world {wx:.0f}, {wy:.0f}.")
 
     def _on_viewport_spawn_decoy(self, vx: float, vy: float):
         wx, wy = self.tracker.camera.viewport_to_world(vx, vy)
         self.tracker.spawn_decoy(wx, wy)
-        self.status_bar.showMessage(f"Optical decoy added at {wx:.0f}, {wy:.0f}.", 3000)
+        self.show_warning_toast("Optical Decoy Injected", f"Secondary spot spawned at world {wx:.0f}, {wy:.0f}.")
 
     def _on_minimap_designated(self, wx: float, wy: float):
         self.tracker.designate_target_at(wx, wy)
-        self.status_bar.showMessage(f"Target designated at {wx:.0f}, {wy:.0f}.", 3000)
+        self.show_info_toast("Target Designated", f"Radar designation moved to {wx:.0f}, {wy:.0f}.")
 
     def _on_minimap_spawn_decoy(self, wx: float, wy: float):
         self.tracker.spawn_decoy(wx, wy)
-        self.status_bar.showMessage(f"Optical decoy added at {wx:.0f}, {wy:.0f}.", 3000)
+        self.show_warning_toast("Optical Decoy Injected", f"Secondary spot spawned at {wx:.0f}, {wy:.0f}.")
 
     def _start_csv_logging(self, filename: str):
         if self.tracker.telemetry.start_logging(filename):
-            self.status_bar.showMessage(f"Additional CSV recording started: {filename}", 4000)
-            InfoBar.success("CSV Logging Started", f"Recording telemetry to {filename}", duration=3000, parent=self, position=InfoBarPosition.TOP_RIGHT)
+            self.show_success_toast("CSV Logging Started", f"Recording session telemetry to {filename}")
         else:
             QMessageBox.warning(self, "Recording failed", "The selected CSV file could not be opened.")
 
     def _stop_csv_logging(self):
         self.tracker.telemetry.stop_logging()
-        self.status_bar.showMessage("Additional CSV recording saved.", 4000)
-        InfoBar.info("CSV Logging Saved", "Telemetry recording closed successfully.", duration=2500, parent=self, position=InfoBarPosition.TOP_RIGHT)
+        self.show_info_toast("CSV Logging Saved", "Telemetry file closed successfully.")
 
     def _load_preset(self, preset_filename: str):
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -314,16 +237,9 @@ class MainWindow(QMainWindow):
             self.session_dir = self.tracker.telemetry.start_session(self.session_dir.parent)
             self.control_panel.refresh_from_tracker()
             self.minimap.set_references(self.tracker.primary_target, self.tracker.camera, self.tracker.secondary_targets)
-            self.status_bar.showMessage(f"Scenario loaded: {preset.name}", 4000)
-            InfoBar.success(
-                title="Mission Preset Loaded",
-                content=f"Configured scenario: {preset.name}",
-                duration=3000,
-                parent=self,
-                position=InfoBarPosition.TOP_RIGHT,
-            )
+            self.show_success_toast("Mission Preset Loaded", f"Configured scenario: {preset.name}")
         except PresetError as exc:
-            QMessageBox.warning(self, "Preset could not be loaded", str(exc))
+            self.show_warning_toast("Preset Error", str(exc))
 
     def _simulation_tick(self):
         now = time.perf_counter()
@@ -335,8 +251,8 @@ class MainWindow(QMainWindow):
             if frame is None:
                 self._set_running(False)
                 self.tracker.telemetry.finish_session()
-                self.desktop.navigate(3)
-                self.status_bar.showMessage("Video evaluation complete. Run reports are ready.")
+                self.switchTo(self.review_interface)
+                self.show_info_toast("Video Complete", "Video evaluation completed. Audit reports ready.")
             else:
                 detection = self.tracker.step_external_frame(frame, 1.0 / self.video_source.fps)
         elif self.is_running:
@@ -367,28 +283,17 @@ class MainWindow(QMainWindow):
             locked = self.tracker.state == TrackingState.TRACKING
             if locked and not self.was_locked:
                 self.was_locked = True
-                InfoBar.success(
-                    title="Optical Lock Acquired",
-                    content="Beacon acquisition verified within steady-state error tolerance.",
-                    duration=2500,
-                    parent=self,
-                    position=InfoBarPosition.TOP_RIGHT,
+                self.show_success_toast(
+                    "Optical Lock Acquired",
+                    "Beacon acquisition verified within steady-state error tolerance.",
                 )
             elif not locked and self.tracker.state == TrackingState.LOST and self.was_locked:
                 self.was_locked = False
-                InfoBar.warning(
-                    title="Target Loss Detected",
-                    content="Beacon departed sensor FOV or obscured by disturbance.",
-                    duration=2500,
-                    parent=self,
-                    position=InfoBarPosition.TOP_RIGHT,
+                self.show_warning_toast(
+                    "Target Loss Detected",
+                    "Beacon departed sensor FOV or obscured by disturbance.",
                 )
-            self.phase_labels[2].setObjectName("phaseActive" if locked else "phaseIdle")
-            self.phase_labels[3].setObjectName("phaseActive" if telemetry.total_frames else "phaseIdle")
-            self.engine_badge.setText(self.tracker.state.value)
-            for label in self.phase_labels[2:]:
-                label.style().unpolish(label)
-                label.style().polish(label)
+            self.engine_badge.setText(f"PAT STATE: {self.tracker.state.value}")
 
     def closeEvent(self, event):
         self.sim_timer.stop()
@@ -397,3 +302,4 @@ class MainWindow(QMainWindow):
         self.tracker.telemetry.stop_logging()
         self.tracker.telemetry.finish_session()
         event.accept()
+
