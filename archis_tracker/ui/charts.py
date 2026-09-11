@@ -1,0 +1,78 @@
+"""
+Archis Optical Tracker - Real-time Telemetry Charts
+High-performance dynamic strip charts using pyqtgraph for tracking error, gimbal angles, and FPS.
+"""
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTabWidget
+import pyqtgraph as pg
+import numpy as np
+from collections import deque
+from typing import Deque
+
+
+class TelemetryChartsWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumHeight(180)
+        
+        # Configure pyqtgraph global visual styling
+        pg.setConfigOption('background', '#0f121a')
+        pg.setConfigOption('foreground', '#94a3b8')
+        pg.setConfigOption('antialias', True)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Tab widget for multiple chart views
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs)
+        
+        # Tab 1: Tracking Error Chart
+        self.plot_error = pg.PlotWidget(title="TRACKING ERROR (pixels) vs TIME")
+        self.plot_error.showGrid(x=True, y=True, alpha=0.25)
+        self.plot_error.setLabel('left', 'Error', units='px')
+        self.plot_error.setLabel('bottom', 'Sim Time', units='s')
+        self.curve_error = self.plot_error.plot(pen=pg.mkPen(color='#38bdf8', width=1.5))
+        # 10px Specification reference line
+        line_10px = pg.InfiniteLine(pos=10.0, angle=0, pen=pg.mkPen(color='#4ade80', width=1.2, style=pg.QtCore.Qt.PenStyle.DashLine))
+        self.plot_error.addItem(line_10px)
+        self.tabs.addTab(self.plot_error, "Tracking Error")
+        
+        # Tab 2: Gimbal Pan & Tilt Angles
+        self.plot_gimbal = pg.PlotWidget(title="GIMBAL ANGLES (deg) vs TIME")
+        self.plot_gimbal.showGrid(x=True, y=True, alpha=0.25)
+        self.plot_gimbal.setLabel('left', 'Angle', units='deg')
+        self.plot_gimbal.setLabel('bottom', 'Sim Time', units='s')
+        self.plot_gimbal.addLegend(offset=(10, 10))
+        self.curve_pan = self.plot_gimbal.plot(pen=pg.mkPen(color='#facc15', width=1.5), name="Pan (Azimuth)")
+        self.curve_tilt = self.plot_gimbal.plot(pen=pg.mkPen(color='#a855f7', width=1.5), name="Tilt (Elevation)")
+        self.tabs.addTab(self.plot_gimbal, "Gimbal Kinematics")
+        
+        # Tab 3: System FPS & Target Speed
+        self.plot_perf = pg.PlotWidget(title="PROCESSING SPEED & TARGET VELOCITY")
+        self.plot_perf.showGrid(x=True, y=True, alpha=0.25)
+        self.plot_perf.setLabel('left', 'FPS / Speed')
+        self.plot_perf.setLabel('bottom', 'Sim Time', units='s')
+        self.plot_perf.addLegend(offset=(10, 10))
+        self.curve_fps = self.plot_perf.plot(pen=pg.mkPen(color='#4ade80', width=1.5), name="FPS")
+        self.curve_speed = self.plot_perf.plot(pen=pg.mkPen(color='#f43f5e', width=1.5), name="Target Speed (px/s)")
+        self.tabs.addTab(self.plot_perf, "Performance & Speed")
+
+    def update_data(self, times: Deque[float], errors: Deque[float],
+                    pans: Deque[float], tilts: Deque[float],
+                    fps_list: Deque[float], speeds: Deque[float]):
+        """Feeds new rolling telemetry data points to pyqtgraph curves."""
+        if len(times) < 2:
+            return
+            
+        t_arr = np.array(times)
+        
+        # Only update active tab to maximize render efficiency
+        current_idx = self.tabs.currentIndex()
+        if current_idx == 0:
+            self.curve_error.setData(t_arr, np.array(errors))
+        elif current_idx == 1:
+            self.curve_pan.setData(t_arr, np.array(pans))
+            self.curve_tilt.setData(t_arr, np.array(tilts))
+        elif current_idx == 2:
+            self.curve_fps.setData(t_arr, np.array(fps_list))
+            self.curve_speed.setData(t_arr, np.array(speeds))
