@@ -114,3 +114,12 @@ class KalmanFilter2D:
     @property
     def speed(self) -> float:
         return float(np.hypot(self.state[1], self.state[4]))
+
+    @property
+    def innovation_covariance(self) -> np.ndarray:
+        """Returns 2x2 measurement innovation covariance S = H P H^T + R for gating."""
+        H = np.zeros((2, 6), dtype=np.float32)
+        H[0, 0] = 1.0
+        H[1, 3] = 1.0
+        R = np.eye(2, dtype=np.float32) * self.r_noise
+        return H @ self.cov @ H.T + R
