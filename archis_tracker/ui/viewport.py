@@ -124,19 +124,45 @@ class ViewportWidget(QWidget):
 
         center_sx, center_sy = to_screen(320.0, 240.0)
 
-        # 3. Dynamic Track Gate
+        # 3. Dynamic Track Gate & Neural Heatmap
         if self.detection and self.detection.gate_bbox:
             gx, gy, gw, gh = self.detection.gate_bbox
             gsx, gsy = to_screen(gx, gy)
             gsw = gw * scale
             gsh = gh * scale
+
+            # If AI ONNX Heatmap is present, render semi-translucent neural probability field inside the gate
+            if self.detection.heatmap is not None and "NanoSpot" in self.algo_name:
+                h_arr = np.clip(self.detection.heatmap * 255.0, 0, 255).astype(np.uint8)
+                rgba = np.zeros((64, 64, 4), dtype=np.uint8)
+                rgba[..., 0] = (h_arr * 0.08).astype(np.uint8)
+                rgba[..., 1] = (h_arr * 0.92).astype(np.uint8)
+                rgba[..., 2] = (h_arr * 0.98).astype(np.uint8)
+                rgba[..., 3] = (h_arr * 0.40).astype(np.uint8)
+                h_img = QImage(rgba.data, 64, 64, 64 * 4, QImage.Format.Format_RGBA8888)
+                painter.drawImage(QRectF(gsx, gsy, gsw, gsh), h_img)
+
             # Track gate outline
             painter.setPen(QPen(QColor(56, 189, 248, 140), 1.0, Qt.PenStyle.DashLine))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(QRectF(gsx, gsy, gsw, gsh))
             painter.setFont(QFont("Consolas", 7))
             painter.setPen(QColor(56, 189, 248, 180))
-            painter.drawText(int(gsx + 4), int(gsy + 12), "GATE LOCK")
+            gate_label = "AI GATE LOCK" if "NanoSpot" in self.algo_name else "GATE LOCK"
+            painter.drawText(int(gsx + 4), int(gsy + 12), gate_label)
+
+        # 3.1 Decoy Rejection Warning Banner
+        if self.detection and self.detection.is_decoy:
+            dp_w = 230.0
+            dp_h = 24.0
+            dpx = offset_x + render_w / 2.0 - dp_w / 2.0
+            dpy = offset_y + 16
+            painter.setPen(QPen(QColor(239, 68, 68), 1.2))
+            painter.setBrush(QBrush(QColor(69, 10, 10, 230)))
+            painter.drawRoundedRect(QRectF(dpx, dpy, dp_w, dp_h), 4.0, 4.0)
+            painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
+            painter.setPen(QColor(254, 202, 202))
+            painter.drawText(QRectF(dpx, dpy, dp_w, dp_h), Qt.AlignmentFlag.AlignCenter, "WARNING: DECOY FLARE REJECTED")
 
         # 4. Boresight Reticle & Calibration Rings
         if self.show_crosshair:
@@ -239,7 +265,11 @@ class ViewportWidget(QWidget):
             painter.setPen(QColor(226, 232, 240))
             painter.drawText(int(tx + 6), int(ty + 24), f"BORESIGHT ERR: {self.error_px:5.2f} px  (RMS: {self.rms_error_px:4.2f} px)")
             painter.drawText(int(tx + 6), int(ty + 42), f"PEDESTAL AZ/EL: PAN {self.pan_deg:+6.2f}° | TILT {self.tilt_deg:+6.2f}°")
-            painter.drawText(int(tx + 6), int(ty + 60), f"ESTIMATOR SNR:  {self.snr_db:4.1f} dB  | CV: {self.algo_name}")
+            if "NanoSpot" in self.algo_name and self.detection:
+                ai_text = f"AI LOCKED ({self.detection.confidence*100.0:.0f}%)" if self.detection.detected else "AI SEARCHING"
+                painter.drawText(int(tx + 6), int(ty + 60), f"ESTIMATOR SNR:  {self.snr_db:4.1f} dB  | {ai_text}")
+            else:
+                painter.drawText(int(tx + 6), int(ty + 60), f"ESTIMATOR SNR:  {self.snr_db:4.1f} dB  | CV: {self.algo_name[:14]}")
 
             # Right optical parameters glass card
             right_card_w = 148.0

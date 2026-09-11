@@ -18,7 +18,7 @@ from archis_tracker.core.config import (TargetShape, MotionTrajectory,
                                        AtmosphericCondition, PlatformMotionType)
 
 
-def run_benchmark(duration_s: float = 10.0):
+def run_benchmark(duration_s: float = 10.0, algorithm_name: str = None):
     """
     Runs automated headless benchmark against all 5 official specification criteria:
     1. Acquisition Time <= 2.0 s
@@ -27,12 +27,20 @@ def run_benchmark(duration_s: float = 10.0):
     4. Re-acquisition Time <= 1.0 s
     5. Processing Speed >= 20 FPS
     """
+    tracker = TrackingSystem()
+    from archis_tracker.core.config import TrackingAlgorithm
+    if algorithm_name:
+        for algo in TrackingAlgorithm:
+            if algorithm_name.lower() in algo.name.lower() or algorithm_name.lower() in algo.value.lower():
+                tracker.detector.config.algorithm = algo
+                break
+
     print("=" * 72)
-    print("  ARCHIS FSOC OPTICAL TRACKER // AUTOMATED VERIFICATION BENCHMARK")
+    print(f"  ARCHIS FSOC OPTICAL TRACKER // AUTOMATED VERIFICATION BENCHMARK")
+    print(f"  Algorithm: {tracker.detector.config.algorithm.value}")
     print(f"  Simulating {duration_s:.1f}s of closed-loop tracking @ 30 Hz...")
     print("=" * 72)
     
-    tracker = TrackingSystem()
     dt = 1.0 / 30.0
     total_steps = int(duration_s / dt)
     dropout_start_s = min(2.0, duration_s * 0.45)
@@ -101,11 +109,12 @@ def main():
         parser = argparse.ArgumentParser(description="Archis FSOC Autonomous Optical Tracker")
         parser.add_argument("--benchmark", action="store_true", help="Run automated verification benchmark")
         parser.add_argument("--duration", type=float, default=8.0, help="Benchmark duration in seconds")
+        parser.add_argument("--algorithm", type=str, default=None, help="Algorithm to benchmark (ai, gaussian, iwc, ncc)")
         parser.add_argument("--headless", action="store_true", help="Run headless simulation loop without GUI")
         args = parser.parse_args()
         
         if args.benchmark or args.headless:
-            success = run_benchmark(duration_s=args.duration)
+            success = run_benchmark(duration_s=args.duration, algorithm_name=args.algorithm)
             sys.exit(0 if success else 1)
             
         # Launch PyQt6 GUI Application

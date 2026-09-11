@@ -44,6 +44,7 @@ class TrackingAlgorithm(Enum):
     IWC = "Intensity Weighted Centroid"
     GAUSSIAN_FIT = "2D Gaussian Surface Fit"
     CORRELATION_NCC = "Normalized Cross-Correlation"
+    AI_ONNX = "Deep Learning (NanoSpot-Net ONNX)"
 
 
 class AGCMode(Enum):
@@ -180,3 +181,5 @@ class DetectorConfig:
     min_target_area: int = 4
     max_target_area: int = 450
     agc_mode: AGCMode = AGCMode.LINEAR
+    ai_confidence_threshold: float = 0.50
+    enable_ai_decoy_filter: bool = True

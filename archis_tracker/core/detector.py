@@ -8,6 +8,7 @@ import cv2
 from typing import Tuple, Optional, List, Dict, Any
 from .config import TrackingAlgorithm, AGCMode, DetectorConfig
 from .association import DataAssociator
+from .ai_detector import NanoSpotDetector
 
 
 class DetectionResult:
@@ -15,7 +16,9 @@ class DetectionResult:
                  bbox: Tuple[int, int, int, int] = (0, 0, 0, 0),
                  gate_bbox: Optional[Tuple[int, int, int, int]] = None,
                  confidence: float = 0.0, peak_intensity: float = 0.0,
-                 snr_db: float = 0.0, algorithm_used: str = "IWC"):
+                 snr_db: float = 0.0, algorithm_used: str = "IWC",
+                 heatmap: Optional[np.ndarray] = None,
+                 is_decoy: bool = False):
         self.detected = detected
         self.x = x  # Sub-pixel continuous coordinates in viewport (0 to 640)
         self.y = y  # (0 to 480)
@@ -25,12 +28,15 @@ class DetectionResult:
         self.peak_intensity = peak_intensity
         self.snr_db = snr_db
         self.algorithm_used = algorithm_used
+        self.heatmap = heatmap
+        self.is_decoy = is_decoy
 
 
 class BeaconDetector:
     def __init__(self, config: Optional[DetectorConfig] = None):
         self.config = config or DetectorConfig()
         self.associator = DataAssociator(gate_threshold_chi2=9.21)
+        self.ai_detector = NanoSpotDetector()
         
         # Stored target template for Correlation Tracking (NCC)
         self.target_template: Optional[np.ndarray] = None
@@ -76,6 +82,68 @@ class BeaconDetector:
                 gate_box = (gx1, gy1, gx2 - gx1, gy2 - gy1)
                 crop_x0, crop_y0 = gx1, gy1
                 search_frame = agc_frame[gy1:gy2, gx1:gx2]
+
+        # 1.1 AI Deep Learning NanoSpot-Net ONNX Inference
+        if self.config.algorithm == TrackingAlgorithm.AI_ONNX and self.ai_detector.is_loaded:
+            sh, sw = search_frame.shape
+            if sh > 80 or sw > 80:
+                # Acquisition mode: extract native-scale 64x64 candidate ROI around brightest spatial region
+                cand_y, cand_x = np.unravel_index(np.argmax(search_frame), search_frame.shape)
+                patch_sz = 64
+                px1 = max(0, min(sw - patch_sz, int(cand_x) - patch_sz // 2))
+                py1 = max(0, min(sh - patch_sz, int(cand_y) - patch_sz // 2))
+                ai_input_patch = search_frame[py1:py1 + patch_sz, px1:px1 + patch_sz]
+                patch_off_x, patch_off_y = px1, py1
+            else:
+                ai_input_patch = search_frame
+                patch_off_x, patch_off_y = 0, 0
+
+            detected, sub_x, sub_y, ai_conf, is_decoy, heatmap = self.ai_detector.detect_spot(
+                ai_input_patch,
+                min_confidence=self.config.ai_confidence_threshold,
+                enable_decoy_filter=self.config.enable_ai_decoy_filter
+            )
+            if detected:
+                final_x = float(crop_x0 + patch_off_x + sub_x)
+                final_y = float(crop_y0 + patch_off_y + sub_y)
+                bw, bh = 14, 14
+                gbx = max(0, int(final_x - bw / 2.0))
+                gby = max(0, int(final_y - bh / 2.0))
+
+                if predicted_pos is not None:
+                    cand = [{"x": final_x, "y": final_y, "peak": 220.0, "global_bbox": (gbx, gby, bw, bh), "local_bbox": (int(sub_x - 7), int(sub_y - 7), 14, 14), "area": 36.0}]
+                    best = self.associator.associate_best_candidate(cand, predicted_pos[0], predicted_pos[1], cov_matrix)
+                    if best is None:
+                        return DetectionResult(detected=False, gate_bbox=gate_box, confidence=ai_conf, heatmap=heatmap, is_decoy=is_decoy, algorithm_used=TrackingAlgorithm.AI_ONNX.value)
+
+                px_int = int(np.clip(sub_x, 0, ai_input_patch.shape[1] - 1))
+                py_int = int(np.clip(sub_y, 0, ai_input_patch.shape[0] - 1))
+                peak_val = float(ai_input_patch[py_int, px_int])
+                mean_bg, std_bg = cv2.meanStdDev(ai_input_patch)
+                snr_db = float(20.0 * np.log10(max(1.0, peak_val - float(mean_bg[0][0])) / max(1.0, float(std_bg[0][0]))))
+
+                return DetectionResult(
+                    detected=True,
+                    x=final_x,
+                    y=final_y,
+                    bbox=(gbx, gby, bw, bh),
+                    gate_bbox=gate_box,
+                    confidence=ai_conf,
+                    peak_intensity=peak_val,
+                    snr_db=snr_db,
+                    algorithm_used=TrackingAlgorithm.AI_ONNX.value,
+                    heatmap=heatmap,
+                    is_decoy=is_decoy
+                )
+            else:
+                return DetectionResult(
+                    detected=False,
+                    gate_bbox=gate_box,
+                    confidence=ai_conf,
+                    algorithm_used=TrackingAlgorithm.AI_ONNX.value,
+                    heatmap=heatmap,
+                    is_decoy=is_decoy
+                )
 
         # 2. Noise suppression pre-filter
         filtered = cv2.medianBlur(search_frame, 3)

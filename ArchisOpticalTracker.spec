@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('archis_tracker/presets', 'archis_tracker/presets'), ('archis_tracker/assets', 'archis_tracker/assets')]
+datas = [('archis_tracker/presets', 'archis_tracker/presets'), ('archis_tracker/assets', 'archis_tracker/assets'), ('archis_tracker/models', 'archis_tracker/models')]
 binaries = []
 hiddenimports = ['cv2']
 tmp_ret = collect_all('pyqtgraph')
