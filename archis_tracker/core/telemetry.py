@@ -171,6 +171,9 @@ class TelemetryEngine:
             self.csv_writer = None
         self.is_logging = False
 
+    start_logging = start_csv_log
+    stop_logging = stop_csv_log
+
     def get_summary(self) -> Dict[str, Any]:
         return {
             "acquisition_time_s": self.acquisition_time_s,
