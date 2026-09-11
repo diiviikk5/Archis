@@ -7,8 +7,11 @@ import time
 from PyQt6.QtCore import QSettings, QStandardPaths, Qt, QTimer, QUrl
 from PyQt6.QtGui import QAction, QDesktopServices
 from PyQt6.QtWidgets import (
-    QFrame, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton,
+    QFrame, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
     QSizePolicy, QSplitter, QStatusBar, QVBoxLayout, QWidget,
+)
+from qfluentwidgets import (
+    PrimaryPushButton, PushButton, FluentIcon as FI, InfoBar, InfoBarPosition,
 )
 
 from ..core.config import TrackingState
@@ -19,7 +22,7 @@ from .charts import TelemetryChartsWidget
 from .control_panel import ControlPanelWidget
 from .minimap import MinimapWidget
 from .onboarding import OnboardingDialog
-from .style import DARK_THEME_QSS
+from .style import DARK_THEME_QSS, init_fluent_theme
 from .telemetry_display import TelemetryDashboard
 from .viewport import ViewportWidget
 from .workspaces import DesktopWorkspaces
@@ -28,6 +31,7 @@ from .workspaces import DesktopWorkspaces
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        init_fluent_theme()
         self.setWindowTitle("Archis Optical Tracking Console")
         self.resize(1480, 920)
         self.setMinimumSize(1120, 720)
@@ -36,6 +40,7 @@ class MainWindow(QMainWindow):
         self.tracker = TrackingSystem()
         self.is_running = False
         self.video_source = None
+        self.was_locked = False
 
         reports_root = os.path.join(
             QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation),
@@ -144,21 +149,14 @@ class MainWindow(QMainWindow):
         self.engine_badge = QLabel("ENGINE READY")
         self.engine_badge.setObjectName("engineBadge")
         layout.addWidget(self.engine_badge)
-        self.source_button = QPushButton("Open MP4")
-        self.source_button.setObjectName("secondaryButton")
+        self.source_button = PushButton(FI.VIDEO, " Video Input")
         self.source_button.clicked.connect(self._open_video)
         layout.addWidget(self.source_button)
-        for text, callback in ():
-            button = QPushButton(text)
-            button.setObjectName("secondaryButton")
-            button.clicked.connect(callback)
-            layout.addWidget(button)
-        self.reset_button = QPushButton("Reset")
-        self.reset_button.setObjectName("secondaryButton")
+        self.reset_button = PushButton(FI.SYNC, " Reset")
         self.reset_button.clicked.connect(self._reset_run)
         layout.addWidget(self.reset_button)
-        self.run_button = QPushButton("Start run")
-        self.run_button.setObjectName("primaryButton")
+        self.run_button = PrimaryPushButton(FI.PLAY, " Start Run")
+        self.run_button.setMinimumHeight(38)
         self.run_button.clicked.connect(self._toggle_run)
         layout.addWidget(self.run_button)
         return header
@@ -209,11 +207,16 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(message)
 
     def _update_run_state(self):
-        self.run_button.setText("Pause run" if self.is_running else "Start run")
-        self.run_button.setProperty("running", self.is_running)
-        self.run_button.style().unpolish(self.run_button)
-        self.run_button.style().polish(self.run_button)
-        self.engine_badge.setText("ENGINE RUNNING" if self.is_running else "ENGINE READY")
+        if self.is_running:
+            self.run_button.setIcon(FI.PAUSE.icon())
+            self.run_button.setText(" Pause Run")
+            self.engine_badge.setText("ENGINE RUNNING")
+            self.engine_badge.setStyleSheet("color: #34d399; background-color: #062319; border: 1px solid #059669; border-radius: 6px; padding: 5px 10px; font: 700 10px Consolas, monospace;")
+        else:
+            self.run_button.setIcon(FI.PLAY.icon())
+            self.run_button.setText(" Start Run")
+            self.engine_badge.setText("ENGINE READY")
+            self.engine_badge.setStyleSheet("color: #38bdf8; background-color: #082032; border: 1px solid #0284c7; border-radius: 6px; padding: 5px 10px; font: 700 10px Consolas, monospace;")
         self.phase_labels[1].setObjectName("phaseActive" if self.is_running else "phaseIdle")
         for label in self.phase_labels:
             label.style().unpolish(label)
@@ -253,9 +256,16 @@ class MainWindow(QMainWindow):
         self.minimap.hide()
         self.desktop.navigate(2)
         self.sim_timer.setInterval(max(1, round(1000.0 / source.fps)))
-        self.source_button.setText("Video: " + source.path.name[:20])
+        self.source_button.setText(" " + source.path.name[:16])
         self.status_bar.showMessage(
             f"Video input ready: {source.width}x{source.height} at {source.fps:.2f} FPS. Press Start run."
+        )
+        InfoBar.info(
+            title="Video Input Connected",
+            content=f"Loaded {source.path.name} ({source.width}x{source.height} @ {source.fps:.1f} FPS)",
+            duration=3500,
+            parent=self,
+            position=InfoBarPosition.TOP_RIGHT,
         )
 
     def _on_viewport_designated(self, vx: float, vy: float):
@@ -279,12 +289,14 @@ class MainWindow(QMainWindow):
     def _start_csv_logging(self, filename: str):
         if self.tracker.telemetry.start_logging(filename):
             self.status_bar.showMessage(f"Additional CSV recording started: {filename}", 4000)
+            InfoBar.success("CSV Logging Started", f"Recording telemetry to {filename}", duration=3000, parent=self, position=InfoBarPosition.TOP_RIGHT)
         else:
             QMessageBox.warning(self, "Recording failed", "The selected CSV file could not be opened.")
 
     def _stop_csv_logging(self):
         self.tracker.telemetry.stop_logging()
         self.status_bar.showMessage("Additional CSV recording saved.", 4000)
+        InfoBar.info("CSV Logging Saved", "Telemetry recording closed successfully.", duration=2500, parent=self, position=InfoBarPosition.TOP_RIGHT)
 
     def _load_preset(self, preset_filename: str):
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -295,7 +307,7 @@ class MainWindow(QMainWindow):
                 self.video_source.close()
                 self.video_source = None
                 self.minimap.show()
-                self.source_button.setText("Open MP4")
+                self.source_button.setText(" Video Input")
                 self.sim_timer.setInterval(round(1000 / self.tracker.cam_config.update_rate_hz))
             self.tracker.telemetry.finish_session()
             preset = self.tracker.load_preset(path)
@@ -303,6 +315,13 @@ class MainWindow(QMainWindow):
             self.control_panel.refresh_from_tracker()
             self.minimap.set_references(self.tracker.primary_target, self.tracker.camera, self.tracker.secondary_targets)
             self.status_bar.showMessage(f"Scenario loaded: {preset.name}", 4000)
+            InfoBar.success(
+                title="Mission Preset Loaded",
+                content=f"Configured scenario: {preset.name}",
+                duration=3000,
+                parent=self,
+                position=InfoBarPosition.TOP_RIGHT,
+            )
         except PresetError as exc:
             QMessageBox.warning(self, "Preset could not be loaded", str(exc))
 
@@ -346,6 +365,24 @@ class MainWindow(QMainWindow):
         )
         if self.is_running:
             locked = self.tracker.state == TrackingState.TRACKING
+            if locked and not self.was_locked:
+                self.was_locked = True
+                InfoBar.success(
+                    title="Optical Lock Acquired",
+                    content="Beacon acquisition verified within steady-state error tolerance.",
+                    duration=2500,
+                    parent=self,
+                    position=InfoBarPosition.TOP_RIGHT,
+                )
+            elif not locked and self.tracker.state == TrackingState.LOST and self.was_locked:
+                self.was_locked = False
+                InfoBar.warning(
+                    title="Target Loss Detected",
+                    content="Beacon departed sensor FOV or obscured by disturbance.",
+                    duration=2500,
+                    parent=self,
+                    position=InfoBarPosition.TOP_RIGHT,
+                )
             self.phase_labels[2].setObjectName("phaseActive" if locked else "phaseIdle")
             self.phase_labels[3].setObjectName("phaseActive" if telemetry.total_frames else "phaseIdle")
             self.engine_badge.setText(self.tracker.state.value)
