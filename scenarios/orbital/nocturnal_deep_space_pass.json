@@ -1,0 +1,26 @@
+{
+  "scenario_id": "nocturnal_deep_space_pass",
+  "title": "Deep Nocturnal Low-Light Tracking",
+  "target": {
+    "trajectory": "Figure of 8",
+    "speed_px_s": 50.0,
+    "shape": "Square",
+    "size": 10
+  },
+  "environment": {
+    "screen_width": 2000,
+    "screen_height": 2000,
+    "star_density": 250
+  },
+  "disturbances": {
+    "atmospheric_condition": "Low Light",
+    "atmospheric_severity": 0.9,
+    "max_camera_jitter_px": 2.0,
+    "enable_camera_jitter": true
+  },
+  "pass_criteria": {
+    "max_acquisition_time_s": 2.0,
+    "max_tracking_error_px": 10.0,
+    "max_target_loss_pct": 5.0
+  }
+}
