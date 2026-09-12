@@ -43,3 +43,6 @@ Thumbs.db
 # Media
 public/**/*.mp4
 public/*.mp4
+
+# Generated visual QA captures
+work/

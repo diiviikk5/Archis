@@ -1,17 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_data_files
 
 datas = [('archis_tracker/presets', 'archis_tracker/presets'), ('archis_tracker/assets', 'archis_tracker/assets'), ('archis_tracker/models', 'archis_tracker/models')]
 binaries = []
 hiddenimports = ['cv2']
-tmp_ret = collect_all('pyqtgraph')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('PyQt6')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('qfluentwidgets')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('archis_tracker')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+datas += collect_data_files('qfluentwidgets')
 
 
 a = Analysis(
