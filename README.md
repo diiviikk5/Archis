@@ -148,6 +148,3 @@ python -m archis_tracker.main --benchmark --duration 8.0 --algorithm ai
 
 ---
 
-## 5. License & Team
-Developed for Smart India Hackathon (SIH) 2026 under Problem Statement SIH26169.
-Released under the MIT License.
