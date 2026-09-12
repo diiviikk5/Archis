@@ -46,6 +46,8 @@ class ViewportWidget(QWidget):
         self.last_scale: float = 1.0
         self.last_offset_x: float = 0.0
         self.last_offset_y: float = 0.0
+        self.frame_width = 640
+        self.frame_height = 480
 
     def update_frame(self, frame_np: np.ndarray, detection: DetectionResult,
                      pred_x: float, pred_y: float, state: TrackingState,
@@ -53,6 +55,8 @@ class ViewportWidget(QWidget):
                      latency_ms: float, error_px: float, rms_error_px: float):
         """Updates frame data and triggers immediate repaint."""
         h, w = frame_np.shape
+        self.frame_width, self.frame_height = w, h
+        frame_np = np.ascontiguousarray(frame_np)
         self.frame_image = QImage(frame_np.data, w, h, w, QImage.Format.Format_Grayscale8).copy()
         
         self.detection = detection
@@ -79,7 +83,7 @@ class ViewportWidget(QWidget):
         vx = (pos.x() - self.last_offset_x) / self.last_scale
         vy = (pos.y() - self.last_offset_y) / self.last_scale
         
-        if 0 <= vx < 640 and 0 <= vy < 480:
+        if 0 <= vx < self.frame_width and 0 <= vy < self.frame_height:
             if event.button() == Qt.MouseButton.LeftButton:
                 self.designate_target_signal.emit(float(vx), float(vy))
             elif event.button() == Qt.MouseButton.RightButton:
@@ -88,6 +92,7 @@ class ViewportWidget(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         
         rect = self.rect()
         w_widget = rect.width()
@@ -97,12 +102,12 @@ class ViewportWidget(QWidget):
         painter.fillRect(rect, QColor(8, 10, 14))
         
         # Compute scaling to maintain 640x480 aspect ratio
-        scale_x = w_widget / 640.0
-        scale_y = h_widget / 480.0
+        scale_x = w_widget / self.frame_width
+        scale_y = h_widget / self.frame_height
         scale = min(scale_x, scale_y)
         
-        render_w = 640.0 * scale
-        render_h = 480.0 * scale
+        render_w = self.frame_width * scale
+        render_h = self.frame_height * scale
         offset_x = (w_widget - render_w) / 2.0
         offset_y = (h_widget - render_h) / 2.0
         
@@ -122,7 +127,7 @@ class ViewportWidget(QWidget):
         def to_screen(vx, vy):
             return offset_x + vx * scale, offset_y + vy * scale
 
-        center_sx, center_sy = to_screen(320.0, 240.0)
+        center_sx, center_sy = to_screen(self.frame_width / 2, self.frame_height / 2)
 
         # 3. Dynamic Track Gate & Neural Heatmap
         if self.detection and self.detection.gate_bbox:

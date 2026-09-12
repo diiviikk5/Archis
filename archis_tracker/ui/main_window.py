@@ -121,6 +121,8 @@ class MainWindow(FluentWindow):
 
         # Simulation tick timer (30 Hz minimum)
         self.sim_timer = QTimer(self)
+        self.playback_scale = 1.0
+        self.sim_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.sim_timer.timeout.connect(self._simulation_tick)
         self.last_tick_time = time.perf_counter()
         self.sim_timer.start(round(1000.0 / self.tracker.cam_config.update_rate_hz))
@@ -170,7 +172,7 @@ class MainWindow(FluentWindow):
         if self.is_running:
             self.run_button.setIcon(FIF.PAUSE.icon())
             self.run_button.setText(" Pause Run")
-            self.engine_badge.setText("PAT STATE: LOCKED TRACKING")
+            self.engine_badge.setText(f"PAT STATE: {self.tracker.state.value}")
             self.engine_badge.setStyleSheet("color: #34d399; background-color: #062319; border: 1px solid #059669; border-radius: 6px; padding: 6px 12px; font: 700 11px Consolas, monospace;")
         else:
             self.run_button.setIcon(FIF.PLAY.icon())
@@ -211,7 +213,7 @@ class MainWindow(FluentWindow):
         self.session_dir = self.tracker.telemetry.start_session(self.session_dir.parent)
         self.minimap.hide()
         self.switchTo(self.tracking_interface)
-        self.sim_timer.setInterval(max(1, round(1000.0 / source.fps)))
+        self._set_playback_speed(self.tracking_interface.playback_speed.currentIndex())
         self.source_button.setText(" " + source.path.name[:16])
         self.show_info_toast(
             "Video Input Connected",
@@ -256,7 +258,7 @@ class MainWindow(FluentWindow):
                 self.video_source = None
                 self.minimap.show()
                 self.source_button.setText(" Video Input")
-                self.sim_timer.setInterval(round(1000 / self.tracker.cam_config.update_rate_hz))
+                self._set_playback_speed(self.tracking_interface.playback_speed.currentIndex())
             self.tracker.telemetry.finish_session()
             preset = self.tracker.load_preset(path)
             self.session_dir = self.tracker.telemetry.start_session(self.session_dir.parent)
@@ -266,9 +268,15 @@ class MainWindow(FluentWindow):
         except PresetError as exc:
             self.show_warning_toast("Preset Error", str(exc))
 
+    def _set_playback_speed(self, index):
+        self.playback_scale = (0.25, 0.5, 1.0)[index]
+        rate = self.video_source.fps if self.video_source else self.tracker.cam_config.update_rate_hz
+        self.sim_timer.setInterval(max(1, round(1000.0 / rate / self.playback_scale)))
+
     def _simulation_tick(self):
         now = time.perf_counter()
-        dt = max(0.005, min(0.1, now - self.last_tick_time))
+        # One sensor period per frame: UI stalls must not teleport the target.
+        dt = 1.0 / self.tracker.cam_config.update_rate_hz
         self.last_tick_time = now
         detection = self.tracker.last_detection
         if self.is_running and self.video_source:
@@ -327,4 +335,3 @@ class MainWindow(FluentWindow):
         self.tracker.telemetry.stop_logging()
         self.tracker.telemetry.finish_session()
         event.accept()
-

@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 from qfluentwidgets import (
     ElevatedCardWidget, CardWidget, PrimaryPushButton, PushButton,
     FluentIcon as FIF, IconWidget, TitleLabel, SubtitleLabel,
-    BodyLabel, CaptionLabel, StrongBodyLabel, SegmentedWidget, InfoBadge
+    BodyLabel, CaptionLabel, StrongBodyLabel, SegmentedWidget, InfoBadge, ComboBox
 )
 
 from .telemetry_display import TelemetryDashboard
@@ -267,6 +267,13 @@ class TrackingInterface(QWidget):
         cmd_bar.addWidget(self.engine_badge)
         cmd_bar.addStretch()
 
+        self.playback_speed = ComboBox()
+        self.playback_speed.addItems(["0.25x playback", "0.5x playback", "1x real time"])
+        self.playback_speed.setCurrentIndex(2)
+        self.playback_speed.setToolTip("Playback pace; tracking measurements use simulation time")
+        self.playback_speed.currentIndexChanged.connect(self.window._set_playback_speed)
+        cmd_bar.addWidget(self.playback_speed)
+
         self.source_button = PushButton(FIF.VIDEO, " Video Input")
         self.source_button.clicked.connect(self.window._open_video)
         cmd_bar.addWidget(self.source_button)
@@ -453,5 +460,4 @@ class ReviewInterface(QWidget):
         self.update_review()
         if path:
             self.window.show_info_toast("Session Reports Saved", f"Exported evidence to {path}")
-
 

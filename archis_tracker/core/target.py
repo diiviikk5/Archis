@@ -25,6 +25,8 @@ class TargetBeacon:
         
         # Motion parameters
         self.time_elapsed: float = 0.0
+        self.phase = 0.0
+        self.linear_heading = np.pi / 4.0
         self.shape: TargetShape = self.config.shape
         self.size: int = self.config.size  # 5-20 pixels
         self.intensity: float = self.config.intensity
@@ -52,6 +54,8 @@ class TargetBeacon:
         self.vx = 0.0
         self.vy = 0.0
         self.time_elapsed = 0.0
+        self.phase = 0.0
+        self.ax = self.ay = 0.0
         self.trail.clear()
         self.trail.append((self.x, self.y))
 
@@ -59,16 +63,17 @@ class TargetBeacon:
         """
         Updates kinematic state (position, velocity, acceleration) according to selected trajectory.
         """
+        if dt <= 0:
+            return
         self.time_elapsed += dt
-        t = self.time_elapsed
+        self.phase += max(0.0, self.speed) * dt / max(10.0, self.radius)
         prev_x, prev_y = self.x, self.y
+        prev_vx, prev_vy = self.vx, self.vy
         
         if self.trajectory == MotionTrajectory.STRAIGHT_LINE:
             # Linear trajectory with boundary bounce
-            if abs(self.vx) < 1e-3 and abs(self.vy) < 1e-3:
-                angle = np.pi / 4.0
-                self.vx = self.speed * np.cos(angle)
-                self.vy = self.speed * np.sin(angle)
+            self.vx = self.speed * np.cos(self.linear_heading)
+            self.vy = self.speed * np.sin(self.linear_heading)
                 
             self.x += self.vx * dt
             self.y += self.vy * dt
@@ -88,18 +93,17 @@ class TargetBeacon:
             elif self.y >= world_height - margin:
                 self.y = world_height - margin
                 self.vy = -abs(self.vy)
+            self.linear_heading = np.arctan2(self.vy, self.vx)
 
         elif self.trajectory == MotionTrajectory.CIRCULAR:
             # Smooth circle tangent to origin (starts exactly at center_x, center_y)
-            w = (self.speed / max(10.0, self.radius))
-            self.x = self.center_x + self.radius * np.sin(w * t)
-            self.y = self.center_y + self.radius * (1.0 - np.cos(w * t))
+            self.x = self.center_x + self.radius * np.sin(self.phase)
+            self.y = self.center_y + self.radius * (1.0 - np.cos(self.phase))
 
         elif self.trajectory == MotionTrajectory.FIGURE_OF_8:
             # Lemniscate of Gerono / Lissajous Figure-8 (starts at center_x, center_y)
-            w = (self.speed / max(10.0, self.radius))
-            self.x = self.center_x + self.radius * np.sin(w * t)
-            self.y = self.center_y + (self.radius * 0.5) * np.sin(2 * w * t)
+            self.x = self.center_x + self.radius * np.sin(self.phase)
+            self.y = self.center_y + (self.radius * 0.5) * np.sin(2 * self.phase)
 
         elif self.trajectory == MotionTrajectory.RANDOM:
             # Smooth Ornstein-Uhlenbeck Brownian drift
@@ -124,23 +128,21 @@ class TargetBeacon:
 
         elif self.trajectory == MotionTrajectory.SPIRAL:
             # Expanding / contracting spiral from center
-            spiral_r = (t * 22.0) % (self.radius * 1.2)
-            w = 0.7
-            self.x = self.center_x + spiral_r * np.sin(w * t)
-            self.y = self.center_y + spiral_r * (1.0 - np.cos(w * t))
+            spiral_r = self.radius * 0.5 * (1.0 - np.cos(self.phase * 0.25))
+            self.x = self.center_x + spiral_r * np.sin(self.phase)
+            self.y = self.center_y + spiral_r * np.cos(self.phase)
 
         elif self.trajectory == MotionTrajectory.SINUSOIDAL:
             # Sinusoidal wave motion along X with vertical oscillation
-            w = 0.8
-            self.x = self.center_x + (self.speed * t) % (world_width - 400.0)
-            self.y = self.center_y + 80.0 * np.sin(w * t)
+            self.x = self.center_x + self.radius * np.sin(self.phase)
+            self.y = self.center_y + 80.0 * np.sin(2.0 * self.phase)
 
         # Compute numerical velocity and acceleration
         if dt > 1e-5:
             new_vx = (self.x - prev_x) / dt
             new_vy = (self.y - prev_y) / dt
-            self.ax = (new_vx - self.vx) / dt
-            self.ay = (new_vy - self.vy) / dt
+            self.ax = (new_vx - prev_vx) / dt
+            self.ay = (new_vy - prev_vy) / dt
             self.vx = new_vx
             self.vy = new_vy
 
