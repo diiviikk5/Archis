@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import os
 import sys
+import json
+import hashlib
+from pathlib import Path
 import numpy as np
 import cv2
 from typing import Tuple, Optional, Dict, Any
@@ -14,15 +17,16 @@ from typing import Tuple, Optional, Dict, Any
 
 class NanoSpotDetector:
     """
-    Deep learning optical spot detector running NanoSpot-Net via OpenCV DNN.
-    Achieves sub-millisecond CPU inference (< 0.5 ms) with continuous sub-pixel
-    moment refinement and neural decoy rejection.
+    ONNX heatmap inference with centroid refinement and separate shape rejection.
+    Accuracy and latency must be measured on the deployment domain and hardware.
     """
     def __init__(self, model_path: Optional[str] = None):
         self.model_path = model_path or self._resolve_default_model_path()
         self.net: Optional[cv2.dnn.Net] = None
         self.is_loaded: bool = False
         self.last_heatmap: Optional[np.ndarray] = None
+        self.status = "Model unavailable"
+        self.last_error = ""
         self._load_model()
 
     @staticmethod
@@ -52,10 +56,18 @@ class NanoSpotDetector:
             self.net = cv2.dnn.readNetFromONNX(self.model_path)
             self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
             self.is_loaded = True
+            self.status = "ONNX loaded / provenance unknown"
+            metadata = Path(self.model_path).with_suffix('.json')
+            if metadata.exists():
+                report = json.loads(metadata.read_text(encoding='utf-8'))
+                if report.get('sha256') == hashlib.sha256(Path(self.model_path).read_bytes()).hexdigest():
+                    self.status = report.get('model_type', 'ONNX loaded') + ' / CPU'
         except Exception as e:
-            print(f"[NanoSpotDetector] Warning: Failed to load ONNX model ({e}). Fallback enabled.")
+            print(f"[NanoSpotDetector] Failed to load ONNX model ({e}). ONNX detection disabled.")
             self.net = None
             self.is_loaded = False
+            self.last_error = str(e)
+            self.status = "Model load failed"
 
     def detect_spot(self, crop: np.ndarray,
                     min_confidence: float = 0.50,
@@ -95,13 +107,17 @@ class NanoSpotDetector:
         blob = inp.reshape(1, 1, 64, 64)
 
         # 2. Forward pass through OpenCV DNN
-        self.net.setInput(blob)
         try:
-            heat_out, coords_out = self.net.forward(['heatmap', 'coords'])
-        except Exception:
-            # Single output fallback
+            self.net.setInput(blob)
             heat_out = self.net.forward('heatmap')
-            coords_out = np.array([[0.5, 0.5, 0.5, 0.0]], dtype=np.float32)
+            if heat_out.shape != (1, 1, 64, 64) or not np.isfinite(heat_out).all():
+                raise ValueError('Invalid model heatmap')
+        except (cv2.error, ValueError) as exc:
+            self.last_error = str(exc)
+            self.status = "Inference failed"
+            self.is_loaded = False
+            self.last_heatmap = None
+            return False, 0.0, 0.0, 0.0, False, np.zeros((64, 64), dtype=np.float32)
 
         heatmap = heat_out[0, 0]  # Shape (64, 64)
         self.last_heatmap = heatmap
@@ -175,7 +191,7 @@ class NanoSpotDetector:
         # Scale sub-pixel coordinates back to original crop dimensions
         scale_x = float(w) / 64.0
         scale_y = float(h) / 64.0
-        final_x = sub_x * scale_x
-        final_y = sub_y * scale_y
+        final_x = (sub_x + 0.5) * scale_x - 0.5
+        final_y = (sub_y + 0.5) * scale_y - 0.5
 
         return True, final_x, final_y, confidence, is_decoy, heatmap

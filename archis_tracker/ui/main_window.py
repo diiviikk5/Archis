@@ -23,8 +23,9 @@ from .control_panel import ControlPanelWidget
 from .onboarding import OnboardingDialog
 from .style import DARK_THEME_QSS, init_fluent_theme
 from .workspaces import (
-    HomeInterface, SetupInterface, TrackingInterface, ReviewInterface,
+    HomeInterface, SetupInterface, ReviewInterface,
 )
+from .live_workspace import TrackingInterface
 
 
 class MainWindow(FluentWindow):
@@ -169,21 +170,21 @@ class MainWindow(FluentWindow):
         self._update_run_state()
 
     def _update_run_state(self):
+        self.engine_badge.setStyleSheet("color: #afb2b7; font-size: 12px;")
         if self.is_running:
             self.run_button.setIcon(FIF.PAUSE.icon())
-            self.run_button.setText(" Pause Run")
-            self.engine_badge.setText(f"PAT STATE: {self.tracker.state.value}")
-            self.engine_badge.setStyleSheet("color: #34d399; background-color: #062319; border: 1px solid #059669; border-radius: 6px; padding: 6px 12px; font: 700 11px Consolas, monospace;")
+            self.run_button.setText("Pause")
+            self.engine_badge.setText(self.tracker.state.value.title())
         else:
             self.run_button.setIcon(FIF.PLAY.icon())
-            self.run_button.setText(" Start Run")
-            self.engine_badge.setText("PAT STATE: ENGINE READY")
-            self.engine_badge.setStyleSheet("color: #38bdf8; background-color: #082032; border: 1px solid #0284c7; border-radius: 6px; padding: 6px 12px; font: 700 11px Consolas, monospace;")
+            self.run_button.setText("Start")
+            self.engine_badge.setText("Paused / Ready")
 
     def _reset_run(self):
         self._set_running(False)
         self.tracker.telemetry.finish_session()
         self.tracker.reset()
+        self.was_locked = False
         self.session_dir = self.tracker.telemetry.start_session(self.session_dir.parent)
         if self.video_source:
             self.video_source.rewind()
@@ -214,18 +215,23 @@ class MainWindow(FluentWindow):
         self.minimap.hide()
         self.switchTo(self.tracking_interface)
         self._set_playback_speed(self.tracking_interface.playback_speed.currentIndex())
-        self.source_button.setText(" " + source.path.name[:16])
+        self.source_button.setText("Open video")
+        self.source_button.setToolTip(str(source.path))
         self.show_info_toast(
             "Video Input Connected",
             f"Loaded {source.path.name} ({source.width}x{source.height} @ {source.fps:.1f} FPS)",
         )
 
     def _on_viewport_designated(self, vx: float, vy: float):
+        if self.video_source:
+            return
         wx, wy = self.tracker.camera.viewport_to_world(vx, vy)
         self.tracker.designate_target_at(wx, wy)
         self.show_info_toast("Target Designated", f"Boresight target locked at world {wx:.0f}, {wy:.0f}.")
 
     def _on_viewport_spawn_decoy(self, vx: float, vy: float):
+        if self.video_source:
+            return
         wx, wy = self.tracker.camera.viewport_to_world(vx, vy)
         self.tracker.spawn_decoy(wx, wy)
         self.show_warning_toast("Optical Decoy Injected", f"Secondary spot spawned at world {wx:.0f}, {wy:.0f}.")
@@ -301,6 +307,7 @@ class MainWindow(FluentWindow):
             rms_error_px=telemetry.rms_error_px,
         )
         self.minimap.update()
+        self.tracking_interface.refresh(detection)
         self.telemetry_bar.update_metrics(
             current_error=telemetry.current_error_px, rms_error=telemetry.rms_error_px,
             acq_time=telemetry.acquisition_time_s, has_acq=telemetry.has_first_acquisition,
@@ -318,7 +325,7 @@ class MainWindow(FluentWindow):
                 self.was_locked = True
                 self.show_success_toast(
                     "Optical Lock Acquired",
-                    "Beacon acquisition verified within steady-state error tolerance.",
+                    "Tracker entered the tracking state.",
                 )
             elif not locked and self.tracker.state == TrackingState.LOST and self.was_locked:
                 self.was_locked = False
@@ -326,7 +333,9 @@ class MainWindow(FluentWindow):
                     "Target Loss Detected",
                     "Beacon departed sensor FOV or obscured by disturbance.",
                 )
-            self.engine_badge.setText(f"PAT STATE: {self.tracker.state.value}")
+            self.engine_badge.setText(self.tracker.state.value.title())
+        color = "#71cca1" if self.is_running and self.tracker.state == TrackingState.TRACKING else "#afb2b7"
+        self.engine_badge.setStyleSheet(f"color: {color}; font-size: 12px;")
 
     def closeEvent(self, event):
         self.sim_timer.stop()

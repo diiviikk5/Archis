@@ -1,0 +1,22 @@
+{
+  "seed": 918337,
+  "model_sha256": "4b64a517305433410fc3750773f3e7d13bc3251b21cb2c52b0ea37f785738659",
+  "counts": {
+    "beacon": {
+      "samples": 200,
+      "detections": 200
+    },
+    "streak": {
+      "samples": 200,
+      "detections": 3
+    },
+    "noise": {
+      "samples": 200,
+      "detections": 0
+    }
+  },
+  "mean_detected_centroid_error_px": 0.10626778725796428,
+  "max_detected_centroid_error_px": 0.4223750771956977,
+  "mean_inference_and_postprocess_ms": 0.7500535000417585,
+  "limitations": "Synthetic patches, not flight data. Includes non-neural shape filter. No calibrated confidence claim."
+}

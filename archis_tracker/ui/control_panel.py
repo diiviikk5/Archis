@@ -137,7 +137,7 @@ class ControlPanelWidget(QWidget):
         layout.addWidget(box_algo)
 
         # AI Deep Learning Settings
-        box_ai = QGroupBox("Deep Learning Settings (NanoSpot-Net)")
+        box_ai = QGroupBox("ONNX Detector (Experimental)")
         l_ai = QVBoxLayout(box_ai)
         self.chk_ai_decoy = QCheckBox("Enable Spatial Eccentricity Decoy Filter")
         self.chk_ai_decoy.setChecked(self.tracker.detector.config.enable_ai_decoy_filter)
@@ -145,13 +145,13 @@ class ControlPanelWidget(QWidget):
         l_ai.addWidget(self.chk_ai_decoy)
 
         l_conf = QHBoxLayout()
-        self.lbl_conf = QLabel(f"AI Confidence: {int(self.tracker.detector.config.ai_confidence_threshold * 100)}%")
+        self.lbl_conf = QLabel(f"Response threshold: {self.tracker.detector.config.ai_confidence_threshold:.2f}")
         self.slider_conf = QSlider(Qt.Orientation.Horizontal)
         self.slider_conf.setRange(10, 90)
         self.slider_conf.setValue(int(self.tracker.detector.config.ai_confidence_threshold * 100))
         def _on_ai_conf_changed(val):
             self.tracker.detector.config.ai_confidence_threshold = val / 100.0
-            self.lbl_conf.setText(f"AI Confidence: {val}%")
+            self.lbl_conf.setText(f"Response threshold: {val / 100:.2f}")
         self.slider_conf.valueChanged.connect(_on_ai_conf_changed)
         l_conf.addWidget(self.lbl_conf)
         l_conf.addWidget(self.slider_conf)

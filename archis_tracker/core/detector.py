@@ -18,7 +18,8 @@ class DetectionResult:
                  confidence: float = 0.0, peak_intensity: float = 0.0,
                  snr_db: float = 0.0, algorithm_used: str = "IWC",
                  heatmap: Optional[np.ndarray] = None,
-                 is_decoy: bool = False):
+                 is_decoy: bool = False,
+                 heatmap_bbox: Optional[Tuple[int, int, int, int]] = None):
         self.detected = detected
         self.x = x  # Sub-pixel continuous coordinates in viewport (0 to 640)
         self.y = y  # (0 to 480)
@@ -30,6 +31,7 @@ class DetectionResult:
         self.algorithm_used = algorithm_used
         self.heatmap = heatmap
         self.is_decoy = is_decoy
+        self.heatmap_bbox = heatmap_bbox
 
 
 class BeaconDetector:
@@ -84,7 +86,9 @@ class BeaconDetector:
                 search_frame = agc_frame[gy1:gy2, gx1:gx2]
 
         # 1.1 AI Deep Learning NanoSpot-Net ONNX Inference
-        if self.config.algorithm == TrackingAlgorithm.AI_ONNX and self.ai_detector.is_loaded:
+        if self.config.algorithm == TrackingAlgorithm.AI_ONNX and not self.ai_detector.is_loaded:
+            return DetectionResult(False, gate_bbox=gate_box, algorithm_used="ONNX unavailable")
+        if self.config.algorithm == TrackingAlgorithm.AI_ONNX:
             sh, sw = search_frame.shape
             if sh > 80 or sw > 80:
                 # Acquisition mode: extract native-scale 64x64 candidate ROI around brightest spatial region
@@ -103,18 +107,33 @@ class BeaconDetector:
                 min_confidence=self.config.ai_confidence_threshold,
                 enable_decoy_filter=self.config.enable_ai_decoy_filter
             )
+            if not self.ai_detector.is_loaded:
+                return DetectionResult(False, gate_bbox=gate_box, algorithm_used="ONNX inference failed")
+            heatmap_box = (crop_x0 + patch_off_x, crop_y0 + patch_off_y,
+                           ai_input_patch.shape[1], ai_input_patch.shape[0])
             if detected:
                 final_x = float(crop_x0 + patch_off_x + sub_x)
                 final_y = float(crop_y0 + patch_off_y + sub_y)
-                bw, bh = 14, 14
-                gbx = max(0, int(final_x - bw / 2.0))
-                gby = max(0, int(final_y - bh / 2.0))
+                # Derive the displayed extent from the actual response component.
+                mask = (heatmap >= max(0.25, float(heatmap.max()) * 0.5)).astype(np.uint8)
+                _, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
+                hy, hx = np.unravel_index(heatmap.argmax(), heatmap.shape)
+                component = stats[labels[hy, hx]]
+                scale_x, scale_y = ai_input_patch.shape[1] / 64.0, ai_input_patch.shape[0] / 64.0
+                gbx = crop_x0 + patch_off_x + int(component[0] * scale_x)
+                gby = crop_y0 + patch_off_y + int(component[1] * scale_y)
+                bw = max(1, min(w - gbx, int(np.ceil(component[2] * scale_x))))
+                bh = max(1, min(h - gby, int(np.ceil(component[3] * scale_y))))
+                area = float(component[4] * scale_x * scale_y)
+                measured_peak = float(ai_input_patch.max())
 
                 if predicted_pos is not None:
-                    cand = [{"x": final_x, "y": final_y, "peak": 220.0, "global_bbox": (gbx, gby, bw, bh), "local_bbox": (int(sub_x - 7), int(sub_y - 7), 14, 14), "area": 36.0}]
+                    cand = [{"x": final_x, "y": final_y, "peak": measured_peak,
+                             "global_bbox": (gbx, gby, bw, bh),
+                             "local_bbox": (gbx - crop_x0, gby - crop_y0, bw, bh), "area": area}]
                     best = self.associator.associate_best_candidate(cand, predicted_pos[0], predicted_pos[1], cov_matrix)
                     if best is None:
-                        return DetectionResult(detected=False, gate_bbox=gate_box, confidence=ai_conf, heatmap=heatmap, is_decoy=is_decoy, algorithm_used=TrackingAlgorithm.AI_ONNX.value)
+                        return DetectionResult(detected=False, gate_bbox=gate_box, confidence=ai_conf, heatmap=heatmap, heatmap_bbox=heatmap_box, is_decoy=is_decoy, algorithm_used=TrackingAlgorithm.AI_ONNX.value)
 
                 px_int = int(np.clip(sub_x, 0, ai_input_patch.shape[1] - 1))
                 py_int = int(np.clip(sub_y, 0, ai_input_patch.shape[0] - 1))
@@ -133,6 +152,7 @@ class BeaconDetector:
                     snr_db=snr_db,
                     algorithm_used=TrackingAlgorithm.AI_ONNX.value,
                     heatmap=heatmap,
+                    heatmap_bbox=heatmap_box,
                     is_decoy=is_decoy
                 )
             else:
@@ -142,6 +162,7 @@ class BeaconDetector:
                     confidence=ai_conf,
                     algorithm_used=TrackingAlgorithm.AI_ONNX.value,
                     heatmap=heatmap,
+                    heatmap_bbox=heatmap_box,
                     is_decoy=is_decoy
                 )
 

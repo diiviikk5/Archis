@@ -97,7 +97,7 @@ class HomeInterface(QWidget):
 
         b_text = QVBoxLayout()
         b_text.setSpacing(2)
-        b_title = StrongBodyLabel("ISRO Specification Performance Audit Verified")
+        b_title = StrongBodyLabel("Tracking performance criteria")
         b_title.setStyleSheet("font-size: 14px; font-weight: 700; color: #f0f6fc;")
         b_sub = CaptionLabel("Acquisition <= 2.0s | RMS Error <= 10.0px | Target Loss < 5.0% | Re-acq <= 1.0s | Speed >= 20 FPS")
         b_sub.setStyleSheet("color: #94a3b8; font-size: 11px;")
@@ -105,7 +105,7 @@ class HomeInterface(QWidget):
         b_text.addWidget(b_sub)
         b_layout.addLayout(b_text, 1)
 
-        spec_pill = QLabel("SPEC AUDIT: 5/5 PASSED")
+        spec_pill = QLabel("RUN TO EVALUATE")
         spec_pill.setStyleSheet("color: #34d399; background-color: #062319; border: 1px solid #059669; border-radius: 6px; padding: 6px 12px; font: 700 11px Consolas, monospace;")
         b_layout.addWidget(spec_pill)
         layout.addWidget(banner)
@@ -245,80 +245,6 @@ class SetupInterface(QWidget):
         self.window._set_running(True)
 
 
-class TrackingInterface(QWidget):
-    def __init__(self, window: MainWindow, parent=None):
-        super().__init__(parent)
-        self.window = window
-        self.setObjectName("trackingInterface")
-        self._build_ui()
-
-    def _build_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 14, 20, 14)
-        layout.setSpacing(10)
-
-        # 1. Command Bar Header
-        cmd_bar = QHBoxLayout()
-        cmd_bar.setSpacing(10)
-
-        self.engine_badge = QLabel("PAT STATE: ENGINE READY")
-        self.engine_badge.setObjectName("engineBadge")
-        self.engine_badge.setStyleSheet("color: #38bdf8; background-color: #082032; border: 1px solid #0284c7; border-radius: 6px; padding: 6px 12px; font: 700 11px Consolas, monospace;")
-        cmd_bar.addWidget(self.engine_badge)
-        cmd_bar.addStretch()
-
-        self.playback_speed = ComboBox()
-        self.playback_speed.addItems(["0.25x playback", "0.5x playback", "1x real time"])
-        self.playback_speed.setCurrentIndex(2)
-        self.playback_speed.setToolTip("Playback pace; tracking measurements use simulation time")
-        self.playback_speed.currentIndexChanged.connect(self.window._set_playback_speed)
-        cmd_bar.addWidget(self.playback_speed)
-
-        self.source_button = PushButton(FIF.VIDEO, " Video Input")
-        self.source_button.clicked.connect(self.window._open_video)
-        cmd_bar.addWidget(self.source_button)
-
-        self.reset_button = PushButton(FIF.SYNC, " Reset Run")
-        self.reset_button.clicked.connect(self.window._reset_run)
-        cmd_bar.addWidget(self.reset_button)
-
-        self.run_button = PrimaryPushButton(FIF.PLAY, " Start Run")
-        self.run_button.setMinimumHeight(36)
-        self.run_button.clicked.connect(self.window._toggle_run)
-        cmd_bar.addWidget(self.run_button)
-
-        layout.addLayout(cmd_bar)
-
-        # 2. Telemetry KPI Dashboard
-        self.telemetry_bar = TelemetryDashboard(self.window.tracker.telemetry.thresholds)
-        layout.addWidget(self.telemetry_bar)
-
-        # 3. Optical Viewport & Radar Minimap Splitter
-        optical_row = QSplitter(Qt.Orientation.Horizontal)
-        optical_row.setObjectName("opticalSplitter")
-        optical_row.setChildrenCollapsible(False)
-
-        self.viewport = ViewportWidget()
-        self.viewport.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.viewport.designate_target_signal.connect(self.window._on_viewport_designated)
-        self.viewport.spawn_decoy_signal.connect(self.window._on_viewport_spawn_decoy)
-        optical_row.addWidget(self.viewport)
-
-        self.minimap = MinimapWidget()
-        self.minimap.setMinimumWidth(230)
-        self.minimap.setMaximumWidth(320)
-        self.minimap.set_references(self.window.tracker.primary_target, self.window.tracker.camera, self.window.tracker.secondary_targets)
-        self.minimap.designate_world_signal.connect(self.window._on_minimap_designated)
-        self.minimap.spawn_decoy_world_signal.connect(self.window._on_minimap_spawn_decoy)
-        optical_row.addWidget(self.minimap)
-
-        optical_row.setStretchFactor(0, 5)
-        optical_row.setStretchFactor(1, 2)
-        layout.addWidget(optical_row, 5)
-
-        # 4. Telemetry Charts
-        self.charts = TelemetryChartsWidget()
-        layout.addWidget(self.charts, 2)
 
 
 class ReviewInterface(QWidget):

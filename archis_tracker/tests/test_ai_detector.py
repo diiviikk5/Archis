@@ -68,3 +68,74 @@ def test_beacon_detector_ai_integration():
     assert abs(res.x - 320.0) < 1.0
     assert abs(res.y - 240.0) < 1.0
     assert res.heatmap is not None
+    assert res.heatmap_bbox == (288, 208, 64, 64)
+
+
+def test_missing_model_does_not_masquerade_as_ai(tmp_path):
+    detector = BeaconDetector(DetectorConfig(algorithm=TrackingAlgorithm.AI_ONNX))
+    detector.ai_detector = NanoSpotDetector(str(tmp_path / 'missing.onnx'))
+    result = detector.detect(np.full((480, 640), 200, dtype=np.uint8))
+    assert not result.detected
+    assert result.algorithm_used == 'ONNX unavailable'
+    assert result.heatmap is None
+
+
+def test_corrupt_model_is_reported(tmp_path):
+    path = tmp_path / 'broken.onnx'
+    path.write_bytes(b'not an ONNX graph')
+    detector = NanoSpotDetector(str(path))
+    assert not detector.is_loaded
+    assert detector.status == 'Model load failed'
+
+
+@pytest.mark.parametrize('xy', [(12.3, 19.7), (31.1, 45.2), (51.6, 10.4)])
+def test_real_inference_tracks_input_not_fixed_coordinates(xy):
+    detector = NanoSpotDetector()
+    y, x = np.ogrid[:64, :64]
+    patch = (15 + 220 * np.exp(-((x-xy[0])**2+(y-xy[1])**2)/(2*2.5**2))).astype(np.uint8)
+    result = detector.detect_spot(patch)
+    assert result[0]
+    assert np.hypot(result[1]-xy[0], result[2]-xy[1]) < 1
+    assert np.ptp(result[5]) > 0.2
+    assert not detector.detect_spot(np.zeros_like(patch))[0]
+
+
+def test_model_provenance_matches_bundled_weights():
+    detector = NanoSpotDetector()
+    assert detector.status == 'synthetic-trained CNN / CPU'
+
+
+def test_threshold_and_shape_filter_affect_real_inference():
+    detector = NanoSpotDetector()
+    y, x = np.ogrid[:64, :64]
+    streak = (10 + 240 * np.exp(-((x-32)**2/(2*1.5**2)+(y-32)**2/(2*12**2)))).astype(np.uint8)
+    assert detector.detect_spot(streak, min_confidence=0.3, enable_decoy_filter=False)[0]
+    assert not detector.detect_spot(streak, min_confidence=0.3, enable_decoy_filter=True)[0]
+    assert not detector.detect_spot(streak, min_confidence=1.0, enable_decoy_filter=False)[0]
+
+
+def test_inference_failure_is_explicit():
+    import cv2
+    detector = BeaconDetector(DetectorConfig(algorithm=TrackingAlgorithm.AI_ONNX))
+    # Fault injection only; successful-inference tests use the actual bundled graph.
+    class FailedNet:
+        def setInput(self, blob):
+            raise cv2.error('injected runtime failure')
+    detector.ai_detector.net = FailedNet()
+    result = detector.detect(np.zeros((480, 640), dtype=np.uint8))
+    assert not result.detected
+    assert result.algorithm_used == 'ONNX inference failed'
+    assert detector.ai_detector.status == 'Inference failed'
+
+
+def test_ai_gate_heatmap_uses_sensor_coordinates():
+    detector = BeaconDetector(DetectorConfig(algorithm=TrackingAlgorithm.AI_ONNX))
+    y, x = np.ogrid[:480, :640]
+    frame = (15 + 220*np.exp(-((x-200)**2+(y-170)**2)/(2*2.5**2))).astype(np.uint8)
+    result = detector.detect(frame, predicted_pos=(200, 170))
+    assert result.detected
+    hx, hy, hw, hh = result.heatmap_bbox
+    assert hx <= result.x < hx + hw
+    assert hy <= result.y < hy + hh
+    assert abs(result.x-200) < 1
+    assert abs(result.y-170) < 1

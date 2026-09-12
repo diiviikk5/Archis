@@ -50,7 +50,7 @@ class MinimapWidget(QWidget):
             if event.button() == Qt.MouseButton.LeftButton:
                 self.designate_world_signal.emit(world_x, world_y)
             elif event.button() == Qt.MouseButton.RightButton:
-                self.spawn_decoy_world_signal(world_x, world_y)
+                self.spawn_decoy_world_signal.emit(world_x, world_y)
 
     def paintEvent(self, event):
         painter = QPainter(self)

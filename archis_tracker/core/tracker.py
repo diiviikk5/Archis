@@ -80,6 +80,9 @@ class TrackingSystem:
         self.controller.reset()
         self.telemetry.reset()
         self.detector.target_template = None
+        self.last_detection = DetectionResult(False, algorithm_used=self.detector.config.algorithm.value)
+        self.detector.ai_detector.last_heatmap = None
+        self.current_frame = np.zeros_like(self.current_frame)
         self.state = TrackingState.ACQUIRING
         self.state_timer = 0.0
         self.sim_time = 0.0

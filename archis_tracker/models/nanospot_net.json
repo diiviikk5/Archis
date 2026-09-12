@@ -1,0 +1,18 @@
+{
+  "training_seed": 20260912,
+  "validation_seed": 77031,
+  "training_steps": 900,
+  "training_examples": 21600,
+  "validation_examples": 240,
+  "positive_examples": 163,
+  "negative_examples": 77,
+  "detected_positives": 163,
+  "false_positives": 33,
+  "pipeline_positives": 163,
+  "pipeline_false_positives": 6,
+  "mean_peak_error_px": 0.402884909839597,
+  "max_peak_error_px": 0.8296280724540714,
+  "model_type": "synthetic-trained CNN",
+  "sha256": "4b64a517305433410fc3750773f3e7d13bc3251b21cb2c52b0ea37f785738659",
+  "limitations": "Synthetic patches only; response is uncalibrated. Shape rejection is a separate heuristic."
+}

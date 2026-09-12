@@ -13,11 +13,11 @@ from typing import Deque
 class TelemetryChartsWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(180)
+        self.setMinimumHeight(150)
         
         # Configure pyqtgraph global visual styling
-        pg.setConfigOption('background', '#0f121a')
-        pg.setConfigOption('foreground', '#94a3b8')
+        pg.setConfigOption('background', '#191a1c')
+        pg.setConfigOption('foreground', '#9c9fa4')
         pg.setConfigOption('antialias', True)
         
         layout = QVBoxLayout(self)
@@ -64,6 +64,11 @@ class TelemetryChartsWidget(QWidget):
         self.plot_fft.setLabel('bottom', 'Frequency', units='Hz')
         self.curve_fft = self.plot_fft.plot(pen=pg.mkPen(color='#ec4899', width=1.5), fillLevel=-40, fillBrush=pg.mkBrush(236, 72, 153, 50))
         self.tabs.addTab(self.plot_fft, "Jitter Spectrum (FFT)")
+        for plot in (self.plot_error, self.plot_gimbal, self.plot_perf, self.plot_fft):
+            plot.setTitle(None)
+            plot.showGrid(x=False, y=True, alpha=0.12)
+            plot.setMenuEnabled(False)
+            plot.hideButtons()
 
     def clear_data(self):
         for curve in (self.curve_error, self.curve_pan, self.curve_tilt,
@@ -95,7 +100,10 @@ class TelemetryChartsWidget(QWidget):
                 n = min(128, len(err_arr))
                 segment = err_arr[-n:] - np.mean(err_arr[-n:])
                 fft_vals = np.abs(np.fft.rfft(segment))
-                freqs = np.fft.rfftfreq(n, d=1.0 / 30.0)
+                period = float(np.median(np.diff(t_arr[-n:])))
+                if period <= 0:
+                    return
+                freqs = np.fft.rfftfreq(n, d=period)
                 # Convert to dB scale
                 psd_db = 20.0 * np.log10(np.maximum(1e-3, fft_vals))
                 self.curve_fft.setData(freqs, psd_db)

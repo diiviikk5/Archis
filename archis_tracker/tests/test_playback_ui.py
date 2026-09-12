@@ -50,3 +50,22 @@ def test_viewport_uses_actual_frame_dimensions(window):
     )
     assert (viewport.frame_width, viewport.frame_height) == (800, 240)
     assert not viewport.grab().isNull()
+
+
+def test_overlay_controls_do_not_change_sensor_frame(window):
+    live = window.tracking_interface
+    window._simulation_tick()
+    before = live.viewport.frame_image.copy()
+    for attribute, checkbox in live.overlay_controls.items():
+        checkbox.setChecked(not checkbox.isChecked())
+        assert getattr(live.viewport, attribute) == checkbox.isChecked()
+    assert live.viewport.frame_image == before
+
+
+def test_capture_writes_real_frame(window, monkeypatch, tmp_path):
+    window._simulation_tick()
+    path = tmp_path / 'sensor.png'
+    monkeypatch.setattr('archis_tracker.ui.live_workspace.QFileDialog.getSaveFileName',
+                        lambda *args: (str(path), 'PNG'))
+    window.tracking_interface._capture()
+    assert path.read_bytes().startswith(b'\x89PNG')
