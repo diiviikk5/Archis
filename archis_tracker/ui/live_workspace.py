@@ -137,7 +137,7 @@ class TrackingInterface(QWidget):
         self.fields = {}
         form = QFormLayout()
         form.setVerticalSpacing(12)
-        for name in ("Detector", "Model", "Post-filter", "Response", "Centroid", "SNR", "Pan / tilt", "Latency"):
+        for name in ("Detector", "Model", "Post-filter", "Response", "Centroid", "Boresight Error", "SNR", "Pan / tilt", "Latency"):
             value = QLabel("--")
             value.setWordWrap(True)
             value.setMinimumWidth(100)
@@ -220,7 +220,11 @@ class TrackingInterface(QWidget):
         self.fields["Post-filter"].setText("Shape heuristic" if ai_active and tracker.detector.config.enable_ai_decoy_filter else "Off")
         self.fields["Response"].setText(f"{detection.confidence:.3f}" if detection else "--")
         self.fields["Response"].setToolTip("Uncalibrated detector response, not a probability of correctness")
-        self.fields["Centroid"].setText(f"{detection.x:.2f}, {detection.y:.2f}" if detection and detection.detected else "Not detected")
+        self.fields["Centroid"].setText(f"({detection.x:.1f}, {detection.y:.1f}) px" if detection and detection.detected else "Not detected")
+        self.fields["Centroid"].setToolTip("Image pixel coordinates on 640x480 sensor. Boresight center is (320, 240).")
+        err_val = tracker.telemetry.current_error_px if detection and detection.detected else 0.0
+        self.fields["Boresight Error"].setText(f"{err_val:.2f} px (<=10 px PASS)" if detection and detection.detected else "--")
+        self.fields["Boresight Error"].setStyleSheet("color: #4ade80; font-weight: bold;" if err_val <= 10.0 else "color: #f87171;")
         self.fields["SNR"].setText(f"{detection.snr_db:.1f} dB" if detection and detection.detected else "--")
         self.fields["Pan / tilt"].setText(f"{tracker.camera.pan_deg:+.2f} / {tracker.camera.tilt_deg:+.2f} deg")
         self.fields["Latency"].setText(f"{tracker.telemetry.pipeline_latency_ms:.2f} ms")
