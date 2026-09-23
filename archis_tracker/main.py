@@ -6,6 +6,9 @@ import sys
 import os
 import argparse
 import time
+from dataclasses import asdict
+from copy import deepcopy
+import json
 
 # Ensure package directory is in sys.path
 if hasattr(sys, '_MEIPASS'):
@@ -13,108 +16,71 @@ if hasattr(sys, '_MEIPASS'):
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from archis_tracker.core.tracker import TrackingSystem
-from archis_tracker.core.config import (TargetShape, MotionTrajectory, 
-                                       AtmosphericCondition, PlatformMotionType)
+from archis_tracker.resources import user_data_dir
 
 
-def run_benchmark(duration_s: float = 10.0, algorithm_name: str = None):
-    """
-    Runs automated headless benchmark against all 5 official specification criteria:
-    1. Acquisition Time <= 2.0 s
-    2. Tracking Error <= 10.0 pixels
-    3. Target Loss < 5.0 %
-    4. Re-acquisition Time <= 1.0 s
-    5. Processing Speed >= 20 FPS
-    """
-    tracker = TrackingSystem()
+def run_benchmark(duration_s: float = 10.0, algorithm_name: str | None = None,
+                  scenario_path: str | None = None):
+    """Run the same scenario-driven benchmark used by the ``archis`` CLI."""
+    from archis_tracker.cli import _run_scenario
     from archis_tracker.core.config import TrackingAlgorithm
-    if algorithm_name:
-        for algo in TrackingAlgorithm:
-            if algorithm_name.lower() in algo.name.lower() or algorithm_name.lower() in algo.value.lower():
-                tracker.detector.config.algorithm = algo
-                break
+    from archis_tracker.core.scenario import Scenario, load_scenario, validate_scenario
 
-    print("=" * 72)
-    print(f"  ARCHIS FSOC OPTICAL TRACKER // AUTOMATED VERIFICATION BENCHMARK")
-    print(f"  Algorithm: {tracker.detector.config.algorithm.value}")
-    print(f"  Simulating {duration_s:.1f}s of closed-loop tracking @ 30 Hz...")
-    print("=" * 72)
-    
-    dt = 1.0 / 30.0
-    total_steps = int(duration_s / dt)
-    dropout_start_s = min(2.0, duration_s * 0.45)
-    dropout_end_s = dropout_start_s + 0.3
-    
-    start_real = time.perf_counter()
-    for step_idx in range(total_steps):
-        step_time = step_idx * dt
-        tracker.sensor_obscured = dropout_start_s <= step_time < dropout_end_s
-        tracker.step(dt)
-        if step_idx % 60 == 0:
-            print(f"  Step {step_idx:4d}/{total_steps} | State: {tracker.state.value:<25} | Error: {tracker.telemetry.current_error_px:4.1f} px | RMS: {tracker.telemetry.rms_error_px:4.1f} px")
-            
-    real_elapsed = time.perf_counter() - start_real
-    real_fps = total_steps / max(1e-4, real_elapsed)
-    
-    summary = tracker.telemetry.get_summary()
-    
-    print("")
-    print("=" * 72)
-    print("  OFFICIAL SPECIFICATION VERIFICATION AUDIT RESULTS:")
-    print("=" * 72)
-    
-    # 1. Acquisition Time
-    acq_status = "PASSED [PASS]" if summary["acquisition_passed"] else "FAILED [FAIL]"
-    print(f"  1. Acquisition Time:      {summary['acquisition_time_s']:6.2f} s   (Spec: <= 2.0 s)  -> {acq_status}")
-    
-    # 2. Tracking Error
-    err_status = "PASSED [PASS]" if summary["error_passed"] else "FAILED [FAIL]"
-    print(f"  2. Steady-State RMS Error: {summary['rms_error_px']:6.2f} px  (Spec: <= 10.0 px) -> {err_status}")
-    
-    # 3. Target Loss %
-    loss_status = "PASSED [PASS]" if summary["loss_passed"] else "FAILED [FAIL]"
-    print(f"  3. Target Loss Rate:      {summary['target_loss_pct']:6.2f} %   (Spec: < 5.0 %)   -> {loss_status}")
-    
-    # 4. Re-acquisition Time
-    if summary["reacquisition_evaluated"]:
-        reacq_status = "PASSED [PASS]" if summary["reacquisition_passed"] else "FAILED [FAIL]"
-    else:
-        reacq_status = "NOT EVALUATED"
-    print(f"  4. Re-acquisition Time:   {summary['reacquisition_time_s']:6.2f} s   (Spec: <= 1.0 s)  -> {reacq_status}")
-    
-    # 5. Processing Speed
-    fps_status = "PASSED [PASS]" if real_fps >= 20.0 else "FAILED [FAIL]"
-    print(f"  5. Processing Speed:      {real_fps:6.1f} FPS (Spec: >= 20 FPS)  -> {fps_status}")
-    
-    print("=" * 72)
-    all_passed = (summary["acquisition_passed"] and summary["error_passed"] and 
-                  summary["loss_passed"] and summary["reacquisition_passed"] and real_fps >= 20.0)
-    if all_passed:
-        print("  VERDICT: ALL FIVE MEASURED SPECIFICATION THRESHOLDS PASSED.")
-    else:
-        print("  VERDICT: BENCHMARK COMPLETED WITH NOTED DEVIATIONS.")
-    print("=" * 72)
-    print("")
-    return all_passed
+    path = scenario_path or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "presets", "cloud_dropout.json"
+    )
+    loaded = load_scenario(path)
+    data = deepcopy(dict(loaded.data))
+    data["evaluation"]["duration_s"] = duration_s
+    if algorithm_name:
+        matches = [item for item in TrackingAlgorithm if (
+            algorithm_name.lower() in item.name.lower()
+            or algorithm_name.lower() in item.value.lower()
+        )]
+        if not matches:
+            raise ValueError(f"unknown tracking algorithm: {algorithm_name}")
+        data["detector"]["algorithm"] = matches[0].name
+    scenario = Scenario(validate_scenario(data), loaded.path)
+    frames = round(duration_s * float(data["camera"]["update_hz"]))
+    _, recorder = _run_scenario(scenario, frames)
+    report_dir = user_data_dir() / "Reports" / f"benchmark_{int(time.time())}"
+    paths = recorder.export(report_dir)
+    summary = recorder.summary()
+    print(json.dumps(asdict(summary), indent=2))
+    for kind, output in paths.items():
+        print(f"{kind.upper()}: {output}")
+    return summary.passed
 
 
 def main():
     import traceback
-    log_path = os.path.join(os.path.expanduser("~"), "archis_crash.log")
+    log_path = str(user_data_dir() / "archis_crash.log")
     try:
         with open(log_path, "a") as f:
             f.write(f"\n[{time.ctime()}] Starting Archis Tracker. MEIPASS: {getattr(sys, '_MEIPASS', 'None')}\n")
             
+        cli_commands = {
+            "validate", "simulate", "track", "record", "analyze", "benchmark",
+            "compare", "stress-test", "train-ai",
+        }
+        if len(sys.argv) > 1 and sys.argv[1] in cli_commands:
+            from archis_tracker.cli import main as cli_main
+            raise SystemExit(cli_main(sys.argv[1:]))
+
         parser = argparse.ArgumentParser(description="Archis FSOC Autonomous Optical Tracker")
         parser.add_argument("--benchmark", action="store_true", help="Run automated verification benchmark")
-        parser.add_argument("--duration", type=float, default=8.0, help="Benchmark duration in seconds")
+        parser.add_argument("--duration", type=float, default=60.0, help="Benchmark duration in seconds")
         parser.add_argument("--algorithm", type=str, default=None, help="Algorithm to benchmark (ai, gaussian, iwc, ncc)")
+        parser.add_argument("--scenario", type=str, default=None, help="Scenario or legacy preset JSON")
         parser.add_argument("--headless", action="store_true", help="Run headless simulation loop without GUI")
         args = parser.parse_args()
         
         if args.benchmark or args.headless:
-            success = run_benchmark(duration_s=args.duration, algorithm_name=args.algorithm)
+            success = run_benchmark(
+                duration_s=args.duration,
+                algorithm_name=args.algorithm,
+                scenario_path=args.scenario,
+            )
             sys.exit(0 if success else 1)
             
         # Launch PyQt6 GUI Application

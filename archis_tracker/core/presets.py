@@ -73,6 +73,7 @@ def load_and_apply_preset(tracker, path: str | Path) -> LoadedPreset:
     target = _section(data, "target")
     camera = _section(data, "camera")
     disturbances = _section(data, "disturbances")
+    dropout = _section(disturbances, "dropout")
 
     values = {
         "shape": _enum(target, "shape", TargetShape),
@@ -97,6 +98,9 @@ def load_and_apply_preset(tracker, path: str | Path) -> LoadedPreset:
         "platform_type": _enum(disturbances, "platform_motion_type", PlatformMotionType),
         "platform_px": _number(disturbances, "platform_motion_amplitude_px", 0, 20),
         "platform_hz": _number(disturbances, "platform_motion_frequency_hz", 0, 100),
+        "dropout_enabled": _boolean(dropout, "enabled"),
+        "dropout_start": _number(dropout, "start_s", 0, 86400),
+        "dropout_duration": _number(dropout, "duration_s", 0, 86400),
     }
 
     primary = tracker.primary_target
@@ -125,6 +129,9 @@ def load_and_apply_preset(tracker, path: str | Path) -> LoadedPreset:
         "platform_type": "platform_motion_type",
         "platform_px": "platform_motion_amplitude_px",
         "platform_hz": "platform_motion_frequency_hz",
+        "dropout_enabled": "dropout_enabled",
+        "dropout_start": "dropout_start_s",
+        "dropout_duration": "dropout_duration_s",
     }
     for key, attr in disturbance_map.items():
         if values[key] is not None:

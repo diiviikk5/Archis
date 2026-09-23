@@ -32,6 +32,7 @@ def test_session_writes_csv_json_and_readable_report(tmp_path):
         rows = list(csv.DictReader(handle))
     report = json.loads((run_dir / "performance_report.json").read_text(encoding="utf-8"))
     readable = (run_dir / "performance_report.txt").read_text(encoding="utf-8")
+    rendered = (run_dir / "performance_report.html").read_text(encoding="utf-8")
 
     assert len(rows) == 12
     assert rows[0]["Detected"] == "1"
@@ -42,3 +43,4 @@ def test_session_writes_csv_json_and_readable_report(tmp_path):
     assert report["metrics"]["camera_update_fps"] == 30.0
     assert report["metrics"]["fps"] == 500.0
     assert "Reacquisition: NOT EVALUATED" in readable
+    assert "Archis FSOC Performance Report" in rendered

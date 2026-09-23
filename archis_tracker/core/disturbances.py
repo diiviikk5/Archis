@@ -13,14 +13,23 @@ class DisturbanceEngine:
     def __init__(self, config: Optional[DisturbanceConfig] = None):
         self.config = config or DisturbanceConfig()
         self.time_elapsed: float = 0.0
+        self.rng = np.random.default_rng(self.config.random_seed)
         
+        self._initialize_rain()
+
+    def _initialize_rain(self) -> None:
+        """Create the persistent rain field from the session RNG."""
         # Rain streaks persistent state
-        np.random.seed(1337)
         self.num_raindrops = 120
-        self.rain_x = np.random.uniform(0, 640, self.num_raindrops).astype(np.float32)
-        self.rain_y = np.random.uniform(0, 480, self.num_raindrops).astype(np.float32)
-        self.rain_len = np.random.uniform(10, 25, self.num_raindrops).astype(np.float32)
-        self.rain_speed = np.random.uniform(350, 600, self.num_raindrops).astype(np.float32)
+        self.rain_x = self.rng.uniform(0, 640, self.num_raindrops).astype(np.float32)
+        self.rain_y = self.rng.uniform(0, 480, self.num_raindrops).astype(np.float32)
+        self.rain_len = self.rng.uniform(10, 25, self.num_raindrops).astype(np.float32)
+        self.rain_speed = self.rng.uniform(350, 600, self.num_raindrops).astype(np.float32)
+
+    def reset(self) -> None:
+        self.time_elapsed = 0.0
+        self.rng = np.random.default_rng(self.config.random_seed)
+        self._initialize_rain()
 
     def update(self, dt: float) -> Tuple[Tuple[float, float], Tuple[float, float]]:
         """
@@ -38,10 +47,10 @@ class DisturbanceEngine:
             # High-frequency multi-harmonic jitter + random walk
             jitter_x = (np.sin(2.0 * np.pi * 37.0 * t) * 0.5 + 
                         np.sin(2.0 * np.pi * 63.0 * t) * 0.3 + 
-                        np.random.normal(0, 0.2)) * max_j
+                        self.rng.normal(0, 0.2)) * max_j
             jitter_y = (np.cos(2.0 * np.pi * 41.0 * t) * 0.5 + 
                         np.cos(2.0 * np.pi * 71.0 * t) * 0.3 + 
-                        np.random.normal(0, 0.2)) * max_j
+                        self.rng.normal(0, 0.2)) * max_j
             jitter_x = float(np.clip(jitter_x, -20.0, 20.0))
             jitter_y = float(np.clip(jitter_y, -20.0, 20.0))
             
@@ -66,8 +75,8 @@ class DisturbanceEngine:
                 plat_x = r * np.cos(2.0 * np.pi * f * t)
                 plat_y = r * np.sin(2.0 * np.pi * f * t)
             elif ptype == PlatformMotionType.RANDOM:
-                plat_x = float(np.clip(np.random.normal(0, amp * 0.5), -amp, amp))
-                plat_y = float(np.clip(np.random.normal(0, amp * 0.5), -amp, amp))
+                plat_x = float(np.clip(self.rng.normal(0, amp * 0.5), -amp, amp))
+                plat_y = float(np.clip(self.rng.normal(0, amp * 0.5), -amp, amp))
                 
         # 3. Update rain drops
         if self.config.atmospheric_condition == AtmosphericCondition.RAIN:
@@ -75,7 +84,7 @@ class DisturbanceEngine:
             self.rain_x += self.rain_speed * 0.25 * dt  # Angled wind
             wrap = self.rain_y >= 480.0
             self.rain_y[wrap] = 0.0
-            self.rain_x[wrap] = np.random.uniform(0, 640, np.sum(wrap))
+            self.rain_x[wrap] = self.rng.uniform(0, 640, np.sum(wrap))
             
         return (jitter_x, jitter_y), (plat_x, plat_y)
 
@@ -126,18 +135,18 @@ class DisturbanceEngine:
             ratio = min(0.15, max(0.01, self.config.salt_pepper_ratio))
             num_sp = int(ratio * h * w)
             # Salt
-            sp_y = np.random.randint(0, h, num_sp // 2)
-            sp_x = np.random.randint(0, w, num_sp // 2)
+            sp_y = self.rng.integers(0, h, num_sp // 2)
+            sp_x = self.rng.integers(0, w, num_sp // 2)
             img[sp_y, sp_x] = 255.0
             # Pepper
-            sp_y = np.random.randint(0, h, num_sp // 2)
-            sp_x = np.random.randint(0, w, num_sp // 2)
+            sp_y = self.rng.integers(0, h, num_sp // 2)
+            sp_x = self.rng.integers(0, w, num_sp // 2)
             img[sp_y, sp_x] = 0.0
 
         # 3. Gaussian Noise (Standard deviation up to 20 pixels / intensity)
         if self.config.enable_gaussian_noise:
             std = min(20.0, max(1.0, self.config.gaussian_noise_std))
-            gauss = np.random.normal(0.0, std, (h, w)).astype(np.float32)
+            gauss = self.rng.normal(0.0, std, (h, w)).astype(np.float32)
             img = img + gauss
 
         # 4. Poisson Shot Noise
@@ -146,7 +155,7 @@ class DisturbanceEngine:
             norm_img = np.clip(img / 255.0, 0.0, 1.0)
             vals = len(np.unique(norm_img))
             vals = 2 ** np.ceil(np.log2(vals))
-            noisy = np.random.poisson(norm_img * vals) / float(vals)
+            noisy = self.rng.poisson(norm_img * vals) / float(vals)
             img = noisy * 255.0
 
         # Final clip to valid 8-bit dynamic range [0, 255]

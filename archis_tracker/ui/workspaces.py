@@ -165,7 +165,7 @@ class HomeInterface(QWidget):
         self.window._set_running(True)
 
     def _start_high_jitter(self):
-        self.window._load_preset("high_jitter.json")
+        self.window._load_preset("platform_jitter.json")
         self.window.switchTo(self.window.tracking_interface)
         self.window._set_running(True)
 
@@ -279,6 +279,18 @@ class ReviewInterface(QWidget):
         refresh_btn.clicked.connect(self.update_review)
         actions.addWidget(refresh_btn)
 
+        benchmark_btn = PushButton(FIF.SPEED_HIGH, " Run Benchmark")
+        benchmark_btn.clicked.connect(lambda: self.window._run_evaluator_action("benchmark"))
+        actions.addWidget(benchmark_btn)
+
+        compare_btn = PushButton(FIF.SYNC, " Compare Algorithms")
+        compare_btn.clicked.connect(lambda: self.window._run_evaluator_action("compare"))
+        actions.addWidget(compare_btn)
+
+        stress_btn = PushButton(FIF.GLOBE, " Stress Sweep")
+        stress_btn.clicked.connect(lambda: self.window._run_evaluator_action("stress-test"))
+        actions.addWidget(stress_btn)
+
         actions.addStretch()
 
         open_folder_btn = PushButton(FIF.FOLDER, " Open Evidence Folder")
@@ -288,6 +300,10 @@ class ReviewInterface(QWidget):
         finish_btn = PrimaryPushButton(FIF.SAVE, " Finish Run & Save Reports")
         finish_btn.clicked.connect(self.finish_run)
         actions.addWidget(finish_btn)
+
+        export_btn = PrimaryPushButton(FIF.SHARE, " Export Evidence Package")
+        export_btn.clicked.connect(self.window._export_evidence)
+        actions.addWidget(export_btn)
 
         layout.addLayout(actions)
 
@@ -370,6 +386,8 @@ class ReviewInterface(QWidget):
 
             <h3 style='color: #f0f6fc; margin-top: 16px; margin-bottom: 8px;'>Operational Statistics</h3>
             <ul style='color: #8b949e; font-size: 13px; line-height: 1.8;'>
+                <li>Accuracy Basis: <b style='color: #f0f6fc;'>{summary['accuracy_basis']}</b></li>
+                <li>Centroid RMSE: <b style='color: #f0f6fc; font-family: Consolas;'>{summary['centroid_rmse_px'] if summary['centroid_rmse_px'] is not None else 'N/A'} px</b></li>
                 <li>Total Frames Processed: <b style='color: #f0f6fc; font-family: Consolas;'>{summary['total_frames']}</b></li>
                 <li>Session Duration: <b style='color: #f0f6fc; font-family: Consolas;'>{summary['simulation_duration_s']:.2f} s</b></li>
                 <li>Lock Retention: <b style='color: #f0f6fc; font-family: Consolas;'>{summary['lock_retention_pct']:.1f}%</b></li>
@@ -386,4 +404,3 @@ class ReviewInterface(QWidget):
         self.update_review()
         if path:
             self.window.show_info_toast("Session Reports Saved", f"Exported evidence to {path}")
-

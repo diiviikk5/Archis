@@ -36,6 +36,6 @@ def test_pan_and_tilt_limits_are_applied_independently():
     tracker = TrackingSystem()
     tracker.camera.set_rate_limits(7.0, 4.0)
     tracker.camera.gimbal.max_accel = 1000.0
-    tracker.camera.apply_pan_tilt_command(20.0, 20.0, 1.0)
+    tracker.camera.apply_pan_tilt_command(20.0, 20.0, 0.1)
     assert tracker.camera.pan_velocity_deg_s == 7.0
     assert tracker.camera.tilt_velocity_deg_s == 4.0

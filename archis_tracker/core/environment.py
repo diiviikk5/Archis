@@ -13,12 +13,14 @@ class VirtualEnvironment:
         self.width = self.config.screen_width
         self.height = self.config.screen_height
         
-        # Generate persistent stars for deep-space backdrop
-        np.random.seed(42)
-        self.star_x = np.random.uniform(20, self.width - 20, self.config.star_count).astype(np.float32)
-        self.star_y = np.random.uniform(20, self.height - 20, self.config.star_count).astype(np.float32)
-        self.star_brightness = np.random.uniform(40, 180, self.config.star_count).astype(np.float32)
-        self.star_size = np.random.choice([1, 1, 1, 2], size=self.config.star_count)
+        # Generate persistent stars without modifying NumPy's process-global
+        # random state. The scenario seed therefore owns every stochastic
+        # element in a run.
+        rng = np.random.default_rng(self.config.random_seed)
+        self.star_x = rng.uniform(20, self.width - 20, self.config.star_count).astype(np.float32)
+        self.star_y = rng.uniform(20, self.height - 20, self.config.star_count).astype(np.float32)
+        self.star_brightness = rng.uniform(40, 180, self.config.star_count).astype(np.float32)
+        self.star_size = rng.choice([1, 1, 1, 2], size=self.config.star_count)
         
         # Global background base intensity
         self.bg_intensity = self.config.background_intensity

@@ -41,6 +41,7 @@ class PlatformMotionType(Enum):
 
 
 class TrackingAlgorithm(Enum):
+    HYBRID = "Hybrid AI + Classical + CodeLock"
     IWC = "Intensity Weighted Centroid"
     GAUSSIAN_FIT = "2D Gaussian Surface Fit"
     CORRELATION_NCC = "Normalized Cross-Correlation"
@@ -72,6 +73,7 @@ class CameraConfig:
     update_rate_hz: float = 30.0  # >= 30 Hz
     max_pan_speed_deg_s: float = 5.0   # 5-10 °/s, default 5
     max_tilt_speed_deg_s: float = 5.0  # 5-10 °/s, default 5
+    max_acceleration_deg_s2: float = 25.0
     is_monochrome: bool = True
     color_map: str = "gray"  # "gray", "inferno", "viridis"
 
@@ -100,6 +102,7 @@ class EnvironmentConfig:
     star_count: int = 250
     grid_spacing: int = 100
     background_intensity: int = 12
+    random_seed: int = 26169
 
 
 @dataclass
@@ -116,10 +119,12 @@ class TargetConfig:
     # Trajectory specific params
     trajectory_radius: float = 350.0
     trajectory_omega: float = 0.25
+    random_seed: int = 26169
 
 
 @dataclass
 class DisturbanceConfig:
+    random_seed: int = 26169
     # Noise & Disturbance specifications
     enable_salt_pepper: bool = False
     salt_pepper_ratio: float = 0.05  # up to ~10%
@@ -139,26 +144,37 @@ class DisturbanceConfig:
     platform_motion_type: PlatformMotionType = PlatformMotionType.LINEAR
     platform_motion_amplitude_px: float = 5.0  # max +- 20 pixels/frame
     platform_motion_frequency_hz: float = 0.5
+    dropout_enabled: bool = False
+    dropout_start_s: float = 0.0
+    dropout_duration_s: float = 0.0
 
 
 @dataclass
 class ControllerConfig:
     # Closed-loop PID and tracking controller gains
-    kp_pan: float = 0.065
-    ki_pan: float = 0.008
-    kd_pan: float = 0.012
+    kp_pan: float = 8.0
+    ki_pan: float = 0.18
+    kd_pan: float = 0.04
     
-    kp_tilt: float = 0.065
-    ki_tilt: float = 0.008
-    kd_tilt: float = 0.012
+    kp_tilt: float = 8.0
+    ki_tilt: float = 0.18
+    kd_tilt: float = 0.04
     
-    anti_windup_limit: float = 2.0
-    deadband_px: float = 0.2
+    anti_windup_limit: float = 3.0
+    deadband_px: float = 0.5
+    derivative_smoothing: float = 0.7
+    feedforward_gain: float = 0.8
+    feedforward_smoothing: float = 0.1
+    max_feedforward_rate_deg_s: float = 4.0
     
     # Re-acquisition spiral search
     search_spiral_speed: float = 3.0  # deg/s
     search_spiral_pitch: float = 0.8  # deg/turn
     search_timeout_s: float = 4.0
+    coast_timeout_s: float = 0.4
+    local_reacquire_timeout_s: float = 0.6
+    acquisition_confirmation_frames: int = 3
+    periodic_full_scan_frames: int = 30
 
 
 @dataclass
@@ -173,7 +189,7 @@ class PerformanceThresholds:
 
 @dataclass
 class DetectorConfig:
-    algorithm: TrackingAlgorithm = TrackingAlgorithm.GAUSSIAN_FIT
+    algorithm: TrackingAlgorithm = TrackingAlgorithm.HYBRID
     enable_track_gate: bool = True
     gate_size_px: int = 64
     k_sigma_threshold: float = 2.6
@@ -181,5 +197,9 @@ class DetectorConfig:
     min_target_area: int = 4
     max_target_area: int = 450
     agc_mode: AGCMode = AGCMode.LINEAR
-    ai_confidence_threshold: float = 0.50
+    ai_confidence_threshold: float = 0.88
     enable_ai_decoy_filter: bool = True
+    candidate_verifier_threshold: float = 0.35
+    code_lock_pattern: Optional[str] = None
+    code_lock_symbol_frames: int = 1
+    code_lock_minimum_correlation: float = 0.70
