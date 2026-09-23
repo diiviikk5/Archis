@@ -1,150 +1,106 @@
-# Archis FSOC Optical Tracker // Problem Statement SIH26169
+# Archis Optical Tracker 2.0
 
-[![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
-[![OpenCV DNN](https://img.shields.io/badge/OpenCV-DNN%20Inference-green.svg)](https://opencv.org/)
-[![PyQt6 Fluent](https://img.shields.io/badge/UI-PyQt6%20Fluent%20Design-purple.svg)](https://github.com/qfluentwidgets/PyQt-Fluent-Widgets)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+Archis is an AI-assisted virtual camera tracking laboratory for Smart India Hackathon problem statement 26169: coarse alignment of mobile free-space optical communication terminals.
 
-An autonomous virtual camera tracking and pointing system for **Free-Space Optical Communications (FSOC)** beacon acquisition and tracking, designed around **Smart India Hackathon Problem Statement SIH26169**.
+It combines a polished PyQt/Fluent simulator with a deterministic tracking and evaluation engine. The default hybrid pipeline performs full-frame robust acquisition, NanoSpot refinement, compact candidate verification, temporal confirmation, optional CodeLock identity checks, Kalman tracking, and bounded pan/tilt control.
 
----
+## What is included
 
-## 1. Specification Compliance Audit
+- Configurable 2000×2000 virtual world, beacon shapes and trajectories.
+- Fixed-step, seeded noise, atmosphere, platform motion, jitter, and timed dropout.
+- Explicit `SEARCH → ACQUIRE → TRACK → COAST → REACQUIRE` state machine.
+- Hybrid, IWC, Gaussian-fit, NCC, and NanoSpot algorithm modes.
+- Native-resolution MP4, still-image, and image-sequence analysis.
+- Exact CSV/JSON ground-truth sidecars, with opt-in timestamp interpolation.
+- Separate centroid error and camera pointing error—ground truth is never exposed to the detector, tracker, or controller.
+- Per-frame CSV, machine-readable JSON, and self-contained HTML reports.
+- Reproducible benchmark, algorithm comparison, stress sweep, and AI calibration commands.
+- PyInstaller one-folder Windows build plus portable ZIP and Inno Setup installer workflow.
 
-The application includes a synthetic verification harness (`--benchmark`). The table
-below records one current-model run on the development machine, not certification or
-a flight-data evaluation. Re-run benchmarks on the target computer.
+## Quick start
 
-| ISRO Benchmark Parameter | Official Specification | Measured Performance (NanoSpot-Net AI) | Measured Performance (Gaussian Fit) | Compliance Status |
-| :--- | :--- | :--- | :--- | :--- |
-| **1. Acquisition Time** | <= 2.0 s | **0.33 s** | **0.33 s** | **PASSED [PASS]** |
-| **2. Steady-State RMS Error** | <= 10.0 px | **0.65 px** | **0.75 px** | **PASSED [Synthetic]** |
-| **3. Target Loss Rate** | < 5.0 % | **3.75 %** (under intentional obscuration) | **3.75 %** | **PASSED [PASS]** |
-| **4. Re-acquisition Time** | <= 1.0 s | **0.30 s** | **0.30 s** | **PASSED [Sub-second]** |
-| **5. Processing Throughput** | >= 20 FPS | **252.3 FPS** | **271.9 FPS** | **PASSED [Synthetic]** |
+Python 3.11 x64 is the reference environment.
 
----
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e .
+archis gui
+```
 
-## 2. Core Architecture & Subsystems
+On Linux or macOS, activate with `source .venv/bin/activate`. Source execution is supported; Windows 11 x64 is the packaged-release target.
 
-`
-+-----------------------------------------------------------------------------+
-|                       ARCHIS FSOC OPTICAL TRACKER PIPELINE                  |
-+-----------------------------------------------------------------------------+
-                                      |
-         +----------------------------+----------------------------+
-         |                                                         |
-         v                                                         v
-+---------------------------------+       +---------------------------------+
-|       VIRTUAL ENVIRONMENT       |       |    EXTERNAL VIDEO INGESTION     |
-|  2000x2000 Continuous Canvas    |       |  Direct MP4 / AVI Camera Video  |
-|  SDF Kinematics & Trajectories  |       |  Bypasses Synthetic Simulation  |
-+---------------------------------+       +---------------------------------+
-                 |                                         |
-                 +--------------------+--------------------+
-                                      |
-                                      v
-                      +-------------------------------+
-                      |    FPA SENSOR & ATMOSPHERE    |
-                      |  640x480 Monochrome Viewport  |
-                      |  4 deg x 3 deg FOV            |
-                      |  Kolmogorov Scintillation     |
-                      |  Fog, Rain, Salt & Pepper     |
-                      +-------------------------------+
-                                      |
-                                      v
-                      +-------------------------------+
-                      |   AI DEEP LEARNING DETECTOR   |
-                      |  NanoSpot-Net (OpenCV DNN)    |
-                      |  Learned Heatmap ONNX Graph  |
-                      |  Sub-Pixel Power Moments      |
-                      |  Spatial Eccentricity Decoy   |
-                      +-------------------------------+
-                                      |
-                                      v
-                      +-------------------------------+
-                      |    KALMAN FILTER & TRACKING   |
-                      |  Constant-Acceleration Kalman |
-                      |  Mahalanobis Chi-Sq Gate      |
-                      |  Dead-Reckoning Extrapolation |
-                      +-------------------------------+
-                                      |
-                                      v
-                      +-------------------------------+
-                      |   PEDESTAL GIMBAL CONTROL     |
-                      |  Anti-Windup Rate-Limited PID |
-                      |  5 - 10 deg/s Slew Limits     |
-                      |  Archimedean Re-acq Spiral    |
-                      +-------------------------------+
-`
+## Command line
 
-### A. Experimental Learned Heatmap Detector
-- A three-convolution CNN produces a 64x64 response heatmap through real OpenCV DNN inference.
-- All convolution weights are trained on synthetic patches. Metadata includes the training seed, validation results and SHA-256 model identity.
-- Subpixel refinement and eccentricity-based shape rejection are conventional post-processing, not learned coordinate or decoy heads.
-- Response scores are uncalibrated. Synthetic tests do not establish flight-video accuracy.
-- Missing, corrupt or failed models report an unavailable state; they never label classical detection as AI.
-- Train with `python scripts/train_heatmap.py` (requires torch and onnx).
-- Evaluate with `python scripts/evaluate_ai.py` (no training framework required).
-- See [fresh-seed validation](docs/AI_VALIDATION.json) and [audit](docs/LIVE_UI_AI_AUDIT.md).
+```text
+archis validate scenarios/schema_v2_example.json
+archis simulate archis_tracker/presets/nominal_leo.json --frames 300
+archis benchmark archis_tracker/presets/cloud_dropout.json --frames 1800 --output-dir reports/dropout
+archis compare archis_tracker/presets/nominal_leo.json --output-dir reports/compare
+archis stress-test archis_tracker/presets/heavy_turbulence.json --output-dir reports/stress
+archis analyze input.mp4 --truth truth.csv --output-dir reports/video
+archis train-ai --samples 400 --seed 26169
+```
 
-### B. Live Tracking Workspace
-- Camera-first layout with compact transport controls and measured telemetry.
-- Tabbed detector inspector and world view; the inspector can be hidden.
-- Independent boresight, detection, prediction, error, search-gate and heatmap toggles.
-- Heatmaps positioned over their actual inference crop, including acquisition.
-- Resizable chart strip and lossless sensor-frame PNG capture.
+`track` adds a final frame preview, `record` creates a simulated MP4, and `gui` launches the desktop application. Run `archis --help` or `archis <command> --help` for all options.
 
----
+## Truth sidecars
 
-## 3. Quick Start & Execution
+CSV rows require `frame_index` or `timestamp_s`, plus `x_px` and `y_px`. `visible` and `target_id` are optional. JSON accepts either an array of equivalent objects or `{ "frames": [...] }`.
 
-### Option A: Standalone Executable (No Python Required)
-Run the pre-compiled, self-contained single-file executable:
-`powershell
-# Launch interactive Windows 11 Fluent GUI
-.\dist\ArchisOpticalTracker.exe
+Exact frame lookup is the default. Pass `--interpolate-truth` only when timestamp interpolation is desired. Missing or invisible truth is retained in logs but excluded from geometric accuracy metrics. Without a sidecar, reports are labelled `observed_tracking` and do not claim accuracy.
 
-# Run automated headless benchmark audit
-.\dist\ArchisOpticalTracker.exe --benchmark --duration 8.0 --algorithm ai
-`
+See [`scenarios/example_truth.csv`](scenarios/example_truth.csv) and [`scenarios/schema_v2_example.json`](scenarios/schema_v2_example.json).
 
-### Option B: From Python Source
-`powershell
-# Clone repository
-git clone https://github.com/diiviikk5/Archis.git
-cd Archis
+## Architecture
 
-# Install dependencies
-pip install -r requirements.txt
+```text
+FrameSource ──> FramePacket ──> robust proposals ──> hybrid evidence
+                                     │                    │
+                                     │              identity / association
+                                     │                    │
+truth source ──> evaluator only      └──────────────> state machine
+                                                           │
+                                               Kalman + PID controller
+                                                           │
+                                              bounded virtual camera
+```
 
-# Launch GUI
-python -m archis_tracker.main
+Simulation applies effects in this order: world and targets, camera pose, platform motion/jitter, atmosphere/blur, sensor noise, then dropout. Sensor-space truth is calculated after geometry and sent only to visualization and evaluation.
 
-# Run the full unit and desktop integration suite
-python -m pytest archis_tracker/tests -v
+## Current measured matrix
 
-# Run automated ISRO benchmark audit
-python -m archis_tracker.main --benchmark --duration 8.0 --algorithm ai
-`
+The latest verification run contains 15 runs: five 60-second, 30 Hz scenarios across seeds 26169–26171. These are development-machine measurements, not unseen-video guarantees. The CLI commands above regenerate the per-frame CSV, machine-readable JSON, and HTML evidence.
 
----
+| Scenario | Acquisition | Centroid RMSE | Pointing RMSE | Worst loss | Reacquisition | Strict result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Nominal LEO | 0.10 s | 0.023–0.028 px | 2.86–2.89 px | 0.00% | n/a | Pass |
+| Evasive target | 0.10 s | 0.027–0.029 px | 3.03–3.25 px | 0.00% | n/a | Pass |
+| Heavy turbulence | 0.10 s | 0.247–0.253 px | 1.00 px | 0.00% | n/a | Pass |
+| Cloud dropout | 0.10 s | 0.098–0.099 px | 0.961–0.965 px | 0.50% | 0.30 s | Pass |
+| Platform jitter | 0.10 s | 0.025–0.036 px | 12.99–13.15 px | 0.00% | n/a | **Pointing gate miss** |
 
-## 4. Problem Statement Specifications Checklist
+Twelve of the 15 strict runs passed; the three misses were all the platform-jitter pointing gate. Measured processing throughput ranged from 74.8 to 333.0 FPS on the development machine. Platform jitter demonstrates why centroid accuracy and closed-loop pointing accuracy are reported separately: detection remained accurate, but the camera offset exceeded the strict 10 px gate.
 
-- [x] **Screen Canvas**: >= 2000 x 2000 px configurable canvas (EnvironmentConfig).
-- [x] **Camera Sensor**: Monochrome Focal Plane Array (FPA), 640 x 480 resolution.
-- [x] **Field of View (FOV)**: 4.0 deg x 3.0 deg default (109.08 urad/px IFOV).
-- [x] **Frame Rate**: >= 30 Hz update clock (achieves > 270 FPS).
-- [x] **Gimbal Slew Rate**: 5 - 10 deg/s software-enforced rate limiting with acceleration limits.
-- [x] **Target Shapes**: Square (default), Circle, Gaussian Spot, Crosshair (5 - 20 px).
-- [x] **Trajectories**: Straight Line, Circular, Figure of 8 (Lissajous), Random Walk, Spiral, Sinusoidal.
-- [x] **Noise Injections**: Salt & Pepper (up to 10%), Gaussian (sigma <= 20), Poisson shot noise.
-- [x] **Environmental Disturbances**: Mechanical jitter (+- 20 px), Platform motion, Fog, Rain, Haze, Scintillation.
-- [x] **Centroiding Algorithms**: Intensity-Weighted Centroid, 2D Gaussian Surface Fit, Normalized Cross-Correlation, Deep Learning (NanoSpot-Net ONNX).
-- [x] **External Video Ingestion**: Loading and tracking external MP4/AVI camera video files.
-- [x] **Autonomous Re-acquisition**: Archimedean expanding spiral scan and Kalman dead-reckoning.
-- [x] **Session Telemetry & Audit**: Real-time KPI dashboard, automated HTML/CSV/JSON session export.
+## Tests
 
----
+```powershell
+python -m pytest -q
+```
 
+The unified suite currently contains 73 tests covering acquisition at the frame center/edges/corners, truth isolation, repeatability, state transitions, CodeLock, controller bounds, preset migration, native-resolution media, truth sidecars, metrics, headless UI startup, and report export.
+
+## Windows release
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1
+```
+
+The script runs tests, creates the one-folder application, packages a portable ZIP, builds the installer when Inno Setup is available, and writes SHA-256 checksums and a release manifest. Keep every file in `dist\ArchisTracker` together. The executable is `dist\ArchisTracker\ArchisTracker.exe`.
+
+## Provenance
+
+Archis1 commit `06022f1` is the product baseline. Qlyraxis commit `2514c5d` is the engineering reference; unrelated Git histories were not merged. Existing Archis preset names and the Fluent desktop workflow remain authoritative.
+
+The formal technical report and user manual are intentionally deferred to the final submission pass.
