@@ -1,0 +1,22 @@
+name: Windows Submission Build
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Build, test and package
+        shell: pwsh
+        run: ./scripts/build_windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ArchisTracker-Windows
+          path: release/*

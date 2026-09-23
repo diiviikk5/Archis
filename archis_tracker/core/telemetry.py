@@ -7,10 +7,12 @@ import time
 from typing import List, Dict, Any, Optional
 from collections import deque
 import csv
+import html
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 from .config import TrackingState, PerformanceThresholds
+from archis_tracker import __version__
 
 
 class TelemetryEngine:
@@ -47,6 +49,12 @@ class TelemetryEngine:
         self.max_error_px: float = 0.0
         self.processing_time_sum_ms: float = 0.0
         self.max_processing_time_ms: float = 0.0
+        self.current_centroid_error_px: Optional[float] = None
+        self.centroid_error_sum_px: float = 0.0
+        self.centroid_error_sq_sum_px: float = 0.0
+        self.centroid_error_count: int = 0
+        self.max_centroid_error_px: float = 0.0
+        self.truth_frames: int = 0
         self.loss_event_count: int = 0
         self.reacquisition_times_s: List[float] = []
         
@@ -55,9 +63,11 @@ class TelemetryEngine:
         self.history_error: deque = deque(maxlen=max_history)
         self.history_error_x: deque = deque(maxlen=max_history)
         self.history_error_y: deque = deque(maxlen=max_history)
+        self.history_centroid_error: deque = deque(maxlen=max_history)
         self.history_pan: deque = deque(maxlen=max_history)
         self.history_tilt: deque = deque(maxlen=max_history)
         self.history_fps: deque = deque(maxlen=max_history)
+        self.history_processing_fps: deque = deque(maxlen=max_history)
         self.history_speed: deque = deque(maxlen=max_history)
         
         # Recent squared errors for sliding-window RMS
@@ -70,6 +80,7 @@ class TelemetryEngine:
         self.session_dir: Optional[Path] = None
         self.session_log_file = None
         self.session_csv_writer = None
+        self.session_metadata: Dict[str, Any] = {}
 
     def reset(self):
         self.total_frames = 0
@@ -82,11 +93,24 @@ class TelemetryEngine:
         self.loss_start_time = None
         self.last_reacquisition_time_s = 0.0
         self.reacquisition_count = 0
+        self.current_error_x = 0.0
+        self.current_error_y = 0.0
+        self.current_error_px = 0.0
+        self.rms_error_px = 0.0
+        self.target_loss_pct = 0.0
+        self.current_fps = 30.0
+        self.pipeline_latency_ms = 0.0
         self.simulation_duration_s = 0.0
         self.error_sum_px = 0.0
         self.max_error_px = 0.0
         self.processing_time_sum_ms = 0.0
         self.max_processing_time_ms = 0.0
+        self.current_centroid_error_px = None
+        self.centroid_error_sum_px = 0.0
+        self.centroid_error_sq_sum_px = 0.0
+        self.centroid_error_count = 0
+        self.max_centroid_error_px = 0.0
+        self.truth_frames = 0
         self.loss_event_count = 0
         self.reacquisition_times_s.clear()
         self.recent_sq_errors.clear()
@@ -94,9 +118,11 @@ class TelemetryEngine:
         self.history_error.clear()
         self.history_error_x.clear()
         self.history_error_y.clear()
+        self.history_centroid_error.clear()
         self.history_pan.clear()
         self.history_tilt.clear()
         self.history_fps.clear()
+        self.history_processing_fps.clear()
         self.history_speed.clear()
 
     def record_frame(self, t_sim: float, state: TrackingState,
@@ -105,7 +131,9 @@ class TelemetryEngine:
                      center_x: float, center_y: float,
                      pan_deg: float, tilt_deg: float,
                      target_speed: float, fps: float, latency_ms: float,
-                     snr_db: float):
+                     snr_db: float, truth_x: Optional[float] = None,
+                     truth_y: Optional[float] = None,
+                     truth_visible: Optional[bool] = None):
         """Records telemetry data point for the current simulation frame."""
         self.total_frames += 1
         self.simulation_duration_s = max(self.simulation_duration_s, t_sim)
@@ -113,6 +141,7 @@ class TelemetryEngine:
         self.pipeline_latency_ms = latency_ms
         self.processing_time_sum_ms += latency_ms
         self.max_processing_time_ms = max(self.max_processing_time_ms, latency_ms)
+        self.current_centroid_error_px = None
         
         if detected:
             self.tracked_frames += 1
@@ -131,13 +160,28 @@ class TelemetryEngine:
                 self.reacquisition_times_s.append(reacq_dt)
                 self.loss_start_time = None
                 
-            # Error from optical boresight center (320, 240)
-            self.current_error_x = measured_x - center_x
-            self.current_error_y = measured_y - center_y
+            # Operational pointing error uses sensor-space truth when the
+            # simulator/evaluator provides it.  Truth is never passed to the
+            # detector, tracker or controller.
+            point_x = truth_x if truth_x is not None and truth_visible is not False else measured_x
+            point_y = truth_y if truth_y is not None and truth_visible is not False else measured_y
+            self.current_error_x = point_x - center_x
+            self.current_error_y = point_y - center_y
             self.current_error_px = float(np.hypot(self.current_error_x, self.current_error_y))
             self.recent_sq_errors.append(self.current_error_px ** 2)
             self.error_sum_px += self.current_error_px
             self.max_error_px = max(self.max_error_px, self.current_error_px)
+            if truth_x is not None and truth_y is not None and truth_visible is not False:
+                self.truth_frames += 1
+                self.current_centroid_error_px = float(
+                    np.hypot(measured_x - truth_x, measured_y - truth_y)
+                )
+                self.centroid_error_sum_px += self.current_centroid_error_px
+                self.centroid_error_sq_sum_px += self.current_centroid_error_px ** 2
+                self.centroid_error_count += 1
+                self.max_centroid_error_px = max(
+                    self.max_centroid_error_px, self.current_centroid_error_px
+                )
             
         else:
             self.lost_frames += 1
@@ -161,9 +205,13 @@ class TelemetryEngine:
         self.history_error.append(self.current_error_px)
         self.history_error_x.append(self.current_error_x)
         self.history_error_y.append(self.current_error_y)
+        self.history_centroid_error.append(
+            float("nan") if self.current_centroid_error_px is None else self.current_centroid_error_px
+        )
         self.history_pan.append(pan_deg)
         self.history_tilt.append(tilt_deg)
         self.history_fps.append(fps)
+        self.history_processing_fps.append(1000.0 / latency_ms if latency_ms > 0 else 0.0)
         self.history_speed.append(target_speed)
 
         # Log to CSV if active
@@ -172,7 +220,10 @@ class TelemetryEngine:
             f"{self.current_error_px:.2f}", f"{self.current_error_x:.2f}",
             f"{self.current_error_y:.2f}", f"{self.rms_error_px:.2f}",
             f"{pan_deg:.3f}", f"{tilt_deg:.3f}", f"{target_speed:.2f}",
-            f"{fps:.1f}", f"{latency_ms:.2f}", f"{snr_db:.1f}"
+            f"{fps:.1f}", f"{latency_ms:.2f}", f"{snr_db:.1f}",
+            "" if truth_x is None else f"{truth_x:.3f}",
+            "" if truth_y is None else f"{truth_y:.3f}",
+            "" if self.current_centroid_error_px is None else f"{self.current_centroid_error_px:.3f}",
         ]
         if self.is_logging and self.csv_writer:
             self.csv_writer.writerow(row)
@@ -185,7 +236,8 @@ class TelemetryEngine:
             "Timestamp_s", "State", "Target_In_FOV", "Detected",
             "Tracking_Error_px", "Error_X_px", "Error_Y_px", "RMS_Error_px",
             "Pan_deg", "Tilt_deg", "Target_Speed_px_s", "FPS",
-            "Pipeline_Latency_ms", "SNR_dB"
+            "Pipeline_Latency_ms", "SNR_dB", "Truth_X_px", "Truth_Y_px",
+            "Centroid_Error_px"
         ])
 
     def start_csv_log(self, filepath: str):
@@ -210,7 +262,7 @@ class TelemetryEngine:
     start_logging = start_csv_log
     stop_logging = stop_csv_log
 
-    def start_session(self, output_root: str | Path) -> Path:
+    def start_session(self, output_root: str | Path, metadata: Optional[Dict[str, Any]] = None) -> Path:
         """Start an automatic, uniquely named run log."""
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         self.session_dir = Path(output_root) / f"run_{stamp}"
@@ -220,6 +272,7 @@ class TelemetryEngine:
         )
         self.session_csv_writer = csv.writer(self.session_log_file)
         self._write_csv_header(self.session_csv_writer)
+        self.session_metadata = dict(metadata or {})
         return self.session_dir
 
     def finish_session(self) -> Optional[Path]:
@@ -234,8 +287,10 @@ class TelemetryEngine:
 
         summary = self.get_summary()
         report = {
-            "schema_version": 1,
+            "schema_version": 2,
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "application": {"name": "Archis Optical Tracker", "version": __version__},
+            "session": self.session_metadata,
             "metrics": summary,
             "thresholds": {
                 "acquisition_time_s_max": self.thresholds.max_acquisition_time_s,
@@ -256,6 +311,7 @@ class TelemetryEngine:
             f"Frames processed: {summary['total_frames']}",
             f"Average processing time: {summary['average_processing_time_ms']:.3f} ms",
             f"Average tracking error: {summary['average_error_px']:.3f} px",
+            f"Centroid RMSE: {summary['centroid_rmse_px'] if summary['centroid_rmse_px'] is not None else 'N/A'}",
             f"Maximum tracking error: {summary['max_error_px']:.3f} px",
             f"Lock retention: {summary['lock_retention_pct']:.3f} %",
             f"Loss events: {summary['loss_event_count']}",
@@ -273,6 +329,23 @@ class TelemetryEngine:
             lines.append("Reacquisition: NOT EVALUATED (no completed loss event)")
         (self.session_dir / "performance_report.txt").write_text(
             "\n".join(lines) + "\n", encoding="utf-8"
+        )
+        metric_rows = "".join(
+            f"<tr><th>{html.escape(str(key))}</th><td>{html.escape(str(value))}</td></tr>"
+            for key, value in summary.items()
+        )
+        session_rows = "".join(
+            f"<tr><th>{html.escape(str(key))}</th><td>{html.escape(str(value))}</td></tr>"
+            for key, value in self.session_metadata.items()
+        )
+        (self.session_dir / "performance_report.html").write_text(
+            "<!doctype html><meta charset='utf-8'><title>Archis Performance Report</title>"
+            "<style>body{font:15px system-ui;background:#071018;color:#e7eef5;max-width:960px;margin:40px auto}"
+            "table{width:100%;border-collapse:collapse;margin-bottom:28px}th,td{padding:9px;border-bottom:1px solid #294052;text-align:left}"
+            "th{color:#83d9ce;width:45%}h1,h2{color:#f2f8fc}</style>"
+            f"<h1>Archis FSOC Performance Report</h1><p>Version {html.escape(__version__)}</p>"
+            f"<h2>Session</h2><table>{session_rows}</table><h2>Metrics</h2><table>{metric_rows}</table>",
+            encoding="utf-8",
         )
         completed_dir = self.session_dir
         self.session_dir = None
@@ -292,6 +365,16 @@ class TelemetryEngine:
             "rms_error_px": self.rms_error_px,
             "average_error_px": average_error,
             "max_error_px": self.max_error_px,
+            "centroid_mean_px": (
+                self.centroid_error_sum_px / self.centroid_error_count
+                if self.centroid_error_count else None
+            ),
+            "centroid_rmse_px": (
+                float(np.sqrt(self.centroid_error_sq_sum_px / self.centroid_error_count))
+                if self.centroid_error_count else None
+            ),
+            "centroid_max_px": self.max_centroid_error_px if self.centroid_error_count else None,
+            "accuracy_basis": "ground_truth" if self.truth_frames else "observed_tracking",
             "error_passed": self.has_first_acquisition and self.rms_error_px <= self.thresholds.max_tracking_error_px,
             "target_loss_pct": self.target_loss_pct,
             "loss_passed": self.total_frames > 0 and self.target_loss_pct < self.thresholds.max_target_loss_pct,

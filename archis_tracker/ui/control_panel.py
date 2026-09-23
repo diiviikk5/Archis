@@ -4,7 +4,7 @@ Configures targets, camera motion limits, disturbance injection,
 optics tracking algorithms, and preset aerospace mission scenarios.
 """
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, 
-                             QLabel, QSlider, QComboBox, QCheckBox, QPushButton, 
+                             QLabel, QSlider, QComboBox, QCheckBox, QPushButton, QLineEdit,
                              QTabWidget, QSpinBox, QDoubleSpinBox, QGroupBox, QFileDialog, QMessageBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 import numpy as np
@@ -200,6 +200,15 @@ class ControlPanelWidget(QWidget):
         btn_clear_decoys = QPushButton("Clear All Decoys")
         btn_clear_decoys.clicked.connect(self.tracker.clear_decoys)
         l_decoy.addWidget(btn_clear_decoys)
+
+        self.chk_codelock = QCheckBox("Require temporal CodeLock identity")
+        self.code_pattern = QLineEdit(self.tracker.detector.config.code_lock_pattern or "1011001")
+        self.code_pattern.setPlaceholderText("Binary pattern, at least 7 symbols")
+        self.chk_codelock.setChecked(bool(self.tracker.detector.config.code_lock_pattern))
+        self.chk_codelock.toggled.connect(self._on_codelock_changed)
+        self.code_pattern.editingFinished.connect(self._on_codelock_changed)
+        l_decoy.addWidget(self.chk_codelock)
+        l_decoy.addWidget(self.code_pattern)
         layout.addWidget(box_decoy)
         
         layout.addStretch()
@@ -314,6 +323,14 @@ class ControlPanelWidget(QWidget):
         self.chk_poisson = QCheckBox("Poisson Shot Noise")
         self.chk_poisson.toggled.connect(lambda v: setattr(self.tracker.disturb_config, "enable_poisson_noise", v))
         l_noise.addWidget(self.chk_poisson)
+        l_noise.addWidget(QLabel("Deterministic random seed:"))
+        self.seed_input = QSpinBox()
+        self.seed_input.setRange(0, 2_147_483_647)
+        self.seed_input.setValue(self.tracker.disturb_config.random_seed)
+        self.seed_input.editingFinished.connect(
+            lambda: self._on_seed_changed(self.seed_input.value())
+        )
+        l_noise.addWidget(self.seed_input)
         layout.addWidget(box_noise)
         
         # 3. Camera Jitter (+-20 px)
@@ -414,9 +431,28 @@ class ControlPanelWidget(QWidget):
     def _on_spawn_decoy(self):
         # Spawn decoy near camera boresight with slight offset
         cam_x, cam_y = self.tracker.camera.world_x, self.tracker.camera.world_y
-        offset_x = np.random.uniform(-100, 100)
-        offset_y = np.random.uniform(-100, 100)
+        offset_x = self.tracker.disturbances.rng.uniform(-100, 100)
+        offset_y = self.tracker.disturbances.rng.uniform(-100, 100)
         self.tracker.spawn_decoy(cam_x + offset_x, cam_y + offset_y, speed=40.0)
+
+    def _on_codelock_changed(self, *_):
+        pattern = self.code_pattern.text().strip()
+        if self.chk_codelock.isChecked() and len(pattern) >= 7 and set(pattern) == {"0", "1"}:
+            self.code_pattern.setStyleSheet("")
+            self.tracker.detector.config.code_lock_pattern = pattern
+            self.tracker.det_config.code_lock_pattern = pattern
+            self.tracker.code_lock = self.tracker._create_codelock()
+        elif self.chk_codelock.isChecked():
+            self.code_pattern.setStyleSheet("border: 1px solid #dc2626;")
+        else:
+            self.code_pattern.setStyleSheet("")
+            self.tracker.detector.config.code_lock_pattern = None
+            self.tracker.det_config.code_lock_pattern = None
+            self.tracker.code_lock = None
+
+    def _on_seed_changed(self, value: int):
+        self.tracker.configure_random_seed(value)
+        self.reset_tracking_signal.emit()
 
     def _on_pan_spd_changed(self, val: int):
         spd = val / 10.0
@@ -446,6 +482,10 @@ class ControlPanelWidget(QWidget):
         self.chk_jit.setChecked(disturbance.enable_camera_jitter)
         self.chk_plat.setChecked(disturbance.enable_platform_motion)
         self.combo_plat.setCurrentText(disturbance.platform_motion_type.value)
+        self.seed_input.setValue(disturbance.random_seed)
+        self.chk_codelock.setChecked(bool(self.tracker.detector.config.code_lock_pattern))
+        if self.tracker.detector.config.code_lock_pattern:
+            self.code_pattern.setText(self.tracker.detector.config.code_lock_pattern)
 
     def _on_auto_toggled(self, checked: bool):
         self.tracker.is_autonomous_tracking = checked

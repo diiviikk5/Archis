@@ -17,7 +17,7 @@ class VirtualCamera:
         # Two-Axis Mechanical Gimbal Assembly
         self.gimbal = GimbalPedestal(
             max_rate_deg_s=self.config.max_pan_speed_deg_s,
-            max_accel_deg_s2=25.0,
+            max_accel_deg_s2=self.config.max_acceleration_deg_s2,
             max_tilt_rate_deg_s=self.config.max_tilt_speed_deg_s,
         )
         
@@ -89,6 +89,24 @@ class VirtualCamera:
         # Enforce virtual space boundaries so viewport doesn't leave the 2000x2000 canvas
         half_w = self.width / 2.0
         half_h = self.height / 2.0
+
+        # Clamp the physical state as well as the rendered viewport.  Without
+        # this the gimbal angle can wind up indefinitely at a world boundary.
+        min_pan = (half_w - self.origin_x - self.jitter_offset_x - self.platform_offset_x) / px_per_deg_x
+        max_pan = (self.env_config.screen_width - half_w - self.origin_x - self.jitter_offset_x - self.platform_offset_x) / px_per_deg_x
+        min_tilt = (half_h - self.origin_y - self.jitter_offset_y - self.platform_offset_y) / px_per_deg_y
+        max_tilt = (self.env_config.screen_height - half_h - self.origin_y - self.jitter_offset_y - self.platform_offset_y) / px_per_deg_y
+        clamped_pan = float(np.clip(self.pan_deg, min_pan, max_pan))
+        clamped_tilt = float(np.clip(self.tilt_deg, min_tilt, max_tilt))
+        if clamped_pan != self.pan_deg:
+            self.pan_velocity_deg_s = self.gimbal.pan_vel_deg_s = 0.0
+        if clamped_tilt != self.tilt_deg:
+            self.tilt_velocity_deg_s = self.gimbal.tilt_vel_deg_s = 0.0
+        self.pan_deg = self.gimbal.pan_angle_deg = clamped_pan
+        self.tilt_deg = self.gimbal.tilt_angle_deg = clamped_tilt
+
+        raw_x = self.origin_x + self.pan_deg * px_per_deg_x + self.jitter_offset_x + self.platform_offset_x
+        raw_y = self.origin_y + self.tilt_deg * px_per_deg_y + self.jitter_offset_y + self.platform_offset_y
         
         self.world_x = float(np.clip(raw_x, half_w, self.env_config.screen_width - half_w))
         self.world_y = float(np.clip(raw_y, half_h, self.env_config.screen_height - half_h))

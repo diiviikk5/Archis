@@ -3,13 +3,15 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
+          python-version: '3.11'
       - name: Install dependencies
-        run: pip install pytest numpy opencv-python pyqt6 pyqtgraph scipy
+        run: pip install ".[test]"
       - name: Run unit tests
         run: pytest archis_tracker/tests -v
