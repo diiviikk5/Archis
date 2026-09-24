@@ -8,8 +8,6 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: Install Archis
-        run: pip install ".[test]"
+          python-version: '3.14'
       - name: Run verification audit
-        run: archis benchmark archis_tracker/presets/nominal_leo.json --frames 300 --output-dir reports/ci
+        run: python -m archis_tracker.main --benchmark --duration 10.0

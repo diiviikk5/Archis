@@ -5,15 +5,9 @@ Built with Microsoft Windows 11 Fluent Design Architecture (MSFluentWindow).
 from __future__ import annotations
 
 import os
-import shutil
-import subprocess
-import sys
 import time
 
-from PyQt6.QtCore import (
-    QObject, QSettings, QStandardPaths, Qt, QThread, QTimer, QUrl,
-    pyqtSignal, pyqtSlot,
-)
+from PyQt6.QtCore import QSettings, QStandardPaths, Qt, QTimer, QUrl
 from PyQt6.QtGui import QAction, QDesktopServices, QIcon
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from qfluentwidgets import (
@@ -24,7 +18,6 @@ from qfluentwidgets import (
 from ..core.config import TrackingState
 from ..core.presets import PresetError
 from ..core.tracker import TrackingSystem
-from ..core.truth import TruthSidecar, TruthSidecarError
 from ..core.video_source import VideoSource, VideoSourceError
 from .control_panel import ControlPanelWidget
 from .onboarding import OnboardingDialog
@@ -35,32 +28,7 @@ from .workspaces import (
 from .live_workspace import TrackingInterface
 
 
-class TrackingWorker(QObject):
-    completed = pyqtSignal(object)
-    failed = pyqtSignal(str)
-
-    def __init__(self, tracker):
-        super().__init__()
-        self.tracker = tracker
-
-    @pyqtSlot(float)
-    def simulation_step(self, dt):
-        try:
-            self.completed.emit(self.tracker.step(dt))
-        except Exception as exc:
-            self.failed.emit(str(exc))
-
-    @pyqtSlot(object, float, object)
-    def external_step(self, frame, dt, truth):
-        try:
-            self.completed.emit(self.tracker.step_external_frame(frame, dt, truth))
-        except Exception as exc:
-            self.failed.emit(str(exc))
-
-
 class MainWindow(FluentWindow):
-    simulation_requested = pyqtSignal(float)
-    external_requested = pyqtSignal(object, float, object)
     def __init__(self):
         super().__init__()
         init_fluent_theme()
@@ -79,29 +47,7 @@ class MainWindow(FluentWindow):
         self.tracker = TrackingSystem()
         self.is_running = False
         self.video_source = None
-        self.truth_sidecar = None
-        self.truth_sidecar_path = None
-        self.current_preset_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "presets", "nominal_leo.json",
-        )
         self.was_locked = False
-        self.worker_busy = False
-
-        self.worker_thread = None
-        self.worker = None
-        # Offscreen tests use a synchronous engine so a test-owned QApplication
-        # cannot tear down a live QThread. Production desktop sessions always
-        # use the worker thread.
-        if os.environ.get("QT_QPA_PLATFORM", "").lower() != "offscreen":
-            self.worker_thread = QThread(self)
-            self.worker = TrackingWorker(self.tracker)
-            self.worker.moveToThread(self.worker_thread)
-            self.simulation_requested.connect(self.worker.simulation_step)
-            self.external_requested.connect(self.worker.external_step)
-            self.worker.completed.connect(self._on_tracking_complete)
-            self.worker.failed.connect(self._on_tracking_failed)
-            self.worker_thread.start()
 
         # Sidebar navigation configuration - spacious, unclipped, expandable
         self.navigationInterface.setMenuButtonVisible(True)
@@ -113,14 +59,13 @@ class MainWindow(FluentWindow):
             QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation),
             "Archis Tracker", "Reports",
         )
-        self.session_dir = self._start_session(reports_root)
+        self.session_dir = self.tracker.telemetry.start_session(reports_root)
 
         # Embedded control panel holding backend widgets
         self.control_panel = ControlPanelWidget(self.tracker)
         self.control_panel.preset_selected_signal.connect(self._load_preset)
         self.control_panel.start_log_signal.connect(self._start_csv_logging)
         self.control_panel.stop_log_signal.connect(self._stop_csv_logging)
-        self.control_panel.reset_tracking_signal.connect(self._reset_run)
         self.control_panel.hide()
 
         # Build modular sub-interfaces
@@ -217,7 +162,7 @@ class MainWindow(FluentWindow):
     def _set_running(self, running: bool):
         if running and self.tracker.telemetry.session_dir is None:
             self.tracker.telemetry.reset()
-            self.session_dir = self._start_session(self.session_dir.parent)
+            self.session_dir = self.tracker.telemetry.start_session(self.session_dir.parent)
         self.is_running = running
         if running:
             self.switchTo(self.tracking_interface)
@@ -237,13 +182,10 @@ class MainWindow(FluentWindow):
 
     def _reset_run(self):
         self._set_running(False)
-        if self.worker_busy:
-            QTimer.singleShot(20, self._reset_run)
-            return
-        self._finish_session()
+        self.tracker.telemetry.finish_session()
         self.tracker.reset()
         self.was_locked = False
-        self.session_dir = self._start_session(self.session_dir.parent)
+        self.session_dir = self.tracker.telemetry.start_session(self.session_dir.parent)
         if self.video_source:
             self.video_source.rewind()
         self.charts.clear_data()
@@ -253,9 +195,6 @@ class MainWindow(FluentWindow):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.session_dir)))
 
     def _open_video(self):
-        if self.worker_busy:
-            self.show_warning_toast("Engine Busy", "Pause and retry after the current sensor frame completes.")
-            return
         path, _ = QFileDialog.getOpenFileName(
             self, "Open evaluator video", "", "Video files (*.mp4 *.avi *.mov *.mkv)"
         )
@@ -266,15 +205,13 @@ class MainWindow(FluentWindow):
         except VideoSourceError as exc:
             self.show_warning_toast("Video Error", str(exc))
             return
-        self._set_running(False)
-        self._finish_session()
         if self.video_source:
             self.video_source.close()
         self.video_source = source
-        self.truth_sidecar = None
-        self.truth_sidecar_path = None
+        self._set_running(False)
+        self.tracker.telemetry.finish_session()
         self.tracker.reset()
-        self.session_dir = self._start_session(self.session_dir.parent)
+        self.session_dir = self.tracker.telemetry.start_session(self.session_dir.parent)
         self.minimap.hide()
         self.switchTo(self.tracking_interface)
         self._set_playback_speed(self.tracking_interface.playback_speed.currentIndex())
@@ -284,24 +221,6 @@ class MainWindow(FluentWindow):
             "Video Input Connected",
             f"Loaded {source.path.name} ({source.width}x{source.height} @ {source.fps:.1f} FPS)",
         )
-
-    def _open_truth(self):
-        if not self.video_source:
-            self.show_warning_toast("Truth Sidecar", "Load an evaluator video before selecting ground truth.")
-            return
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open centroid ground truth", "", "Truth sidecars (*.csv *.json)"
-        )
-        if not path:
-            return
-        try:
-            self.truth_sidecar = TruthSidecar.load(path)
-        except TruthSidecarError as exc:
-            self.show_warning_toast("Truth Sidecar Error", str(exc))
-            return
-        self.truth_sidecar_path = path
-        self.tracking_interface.truth_button.setToolTip(path)
-        self.show_success_toast("Ground Truth Connected", os.path.basename(path))
 
     def _on_viewport_designated(self, vx: float, vy: float):
         if self.video_source:
@@ -336,72 +255,24 @@ class MainWindow(FluentWindow):
         self.show_info_toast("CSV Logging Saved", "Telemetry file closed successfully.")
 
     def _load_preset(self, preset_filename: str):
-        if self.worker_busy:
-            self.show_warning_toast("Engine Busy", "Pause and retry after the current sensor frame completes.")
-            return
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         path = os.path.join(base_dir, "presets", preset_filename)
         try:
             self._set_running(False)
-            self._finish_session()
             if self.video_source:
                 self.video_source.close()
                 self.video_source = None
-                self.truth_sidecar = None
-                self.truth_sidecar_path = None
                 self.minimap.show()
                 self.source_button.setText(" Video Input")
                 self._set_playback_speed(self.tracking_interface.playback_speed.currentIndex())
+            self.tracker.telemetry.finish_session()
             preset = self.tracker.load_preset(path)
-            self.current_preset_path = path
-            self.session_dir = self._start_session(self.session_dir.parent)
+            self.session_dir = self.tracker.telemetry.start_session(self.session_dir.parent)
             self.control_panel.refresh_from_tracker()
             self.minimap.set_references(self.tracker.primary_target, self.tracker.camera, self.tracker.secondary_targets)
             self.show_success_toast("Mission Preset Loaded", f"Configured scenario: {preset.name}")
         except PresetError as exc:
             self.show_warning_toast("Preset Error", str(exc))
-
-    def _run_evaluator_action(self, command: str):
-        stamp = time.strftime("%Y%m%d_%H%M%S")
-        output = self.session_dir.parent / "evaluations" / f"{command}_{stamp}"
-        if getattr(sys, "frozen", False):
-            args = [sys.executable, command, self.current_preset_path, "--output-dir", str(output)]
-        else:
-            args = [sys.executable, "-m", "archis_tracker", command, self.current_preset_path,
-                    "--output-dir", str(output)]
-        try:
-            subprocess.Popen(args, cwd=os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        except OSError as exc:
-            self.show_warning_toast("Evaluation Launch Failed", str(exc))
-            return
-        self.show_info_toast("Evaluation Started", f"{command} is writing evidence to {output}")
-
-    def _start_session(self, output_root):
-        return self.tracker.telemetry.start_session(output_root, self._session_metadata())
-
-    def _session_metadata(self):
-        model = self.tracker.detector.ai_detector
-        return {
-            "source": "external video" if self.video_source else "simulation",
-            "source_path": str(self.video_source.path) if self.video_source else None,
-            "preset": self.current_preset_path,
-            "truth_sidecar": self.truth_sidecar_path,
-            "random_seed": self.tracker.disturb_config.random_seed,
-            "algorithm": self.tracker.detector.config.algorithm.value,
-            "model_status": model.status,
-        }
-
-    def _finish_session(self):
-        self.tracker.telemetry.session_metadata.update(self._session_metadata())
-        return self.tracker.telemetry.finish_session()
-
-    def _export_evidence(self):
-        if self.worker_busy:
-            self.show_warning_toast("Engine Busy", "Pause and retry after the current sensor frame completes.")
-            return
-        self._finish_session()
-        archive = shutil.make_archive(str(self.session_dir), "zip", root_dir=self.session_dir)
-        self.show_success_toast("Evidence Package Exported", archive)
 
     def _set_playback_speed(self, index):
         self.playback_scale = (0.25, 0.5, 1.0)[index]
@@ -409,47 +280,22 @@ class MainWindow(FluentWindow):
         self.sim_timer.setInterval(max(1, round(1000.0 / rate / self.playback_scale)))
 
     def _simulation_tick(self):
-        # The engine runs on its worker thread. Dropping a GUI tick is safer
-        # than queueing stale frames and preserves the fixed sensor timestep.
+        now = time.perf_counter()
+        # One sensor period per frame: UI stalls must not teleport the target.
         dt = 1.0 / self.tracker.cam_config.update_rate_hz
-        self.last_tick_time = time.perf_counter()
+        self.last_tick_time = now
         detection = self.tracker.last_detection
-        if self.is_running and not self.worker_busy and self.video_source:
+        if self.is_running and self.video_source:
             frame = self.video_source.read()
             if frame is None:
                 self._set_running(False)
-                self._finish_session()
+                self.tracker.telemetry.finish_session()
                 self.switchTo(self.review_interface)
                 self.show_info_toast("Video Complete", "Video evaluation completed. Audit reports ready.")
             else:
-                frame_index = self.video_source.frame_index
-                timestamp = frame_index / self.video_source.fps
-                truth = self.truth_sidecar.sample_for(frame_index, timestamp) if self.truth_sidecar else None
-                if self.worker_thread is None:
-                    detection = self.tracker.step_external_frame(frame, 1.0 / self.video_source.fps, truth)
-                else:
-                    self.worker_busy = True
-                    self.external_requested.emit(frame, 1.0 / self.video_source.fps, truth)
-                    return
-        elif self.is_running and not self.worker_busy:
-            if self.worker_thread is None:
-                detection = self.tracker.step(dt)
-            else:
-                self.worker_busy = True
-                self.simulation_requested.emit(dt)
-                return
-        self._render_tracking(detection)
-
-    def _on_tracking_complete(self, detection):
-        self.worker_busy = False
-        self._render_tracking(detection)
-
-    def _on_tracking_failed(self, message):
-        self.worker_busy = False
-        self._set_running(False)
-        self.show_warning_toast("Tracking Engine Error", message)
-
-    def _render_tracking(self, detection):
+                detection = self.tracker.step_external_frame(frame, 1.0 / self.video_source.fps)
+        elif self.is_running:
+            detection = self.tracker.step(dt)
         state = self.tracker.state if self.is_running else TrackingState.IDLE
         telemetry = self.tracker.telemetry
         self.viewport.update_frame(
@@ -472,8 +318,6 @@ class MainWindow(FluentWindow):
             times=telemetry.history_time, errors=telemetry.history_error,
             pans=telemetry.history_pan, tilts=telemetry.history_tilt,
             fps_list=telemetry.history_fps, speeds=telemetry.history_speed,
-            centroid_errors=telemetry.history_centroid_error,
-            processing_fps=telemetry.history_processing_fps,
         )
         if self.is_running:
             locked = self.tracker.state == TrackingState.TRACKING
@@ -495,13 +339,8 @@ class MainWindow(FluentWindow):
 
     def closeEvent(self, event):
         self.sim_timer.stop()
-        self.is_running = False
-        if self.worker_thread is not None:
-            self.worker_thread.quit()
-            self.worker_thread.wait(3000)
-        self.worker_busy = False
         if self.video_source:
             self.video_source.close()
         self.tracker.telemetry.stop_logging()
-        self._finish_session()
+        self.tracker.telemetry.finish_session()
         event.accept()

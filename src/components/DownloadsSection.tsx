@@ -1,5 +1,5 @@
 import React from 'react';
-import { PackageCheck, Terminal, FileCode, Check } from 'lucide-react';
+import { Download, Terminal, FileCode, Check, ExternalLink } from 'lucide-react';
 
 export const DownloadsSection: React.FC = () => {
   return (
@@ -13,7 +13,7 @@ export const DownloadsSection: React.FC = () => {
             Get ARCHIS Desktop & Datasets
           </h2>
           <p className="text-slate-400 max-w-2xl mx-auto text-sm">
-            Reproducible Windows packages, complete Python source, and evidence generated from the same tracking engine.
+            Standalone zero-dependency desktop installers for Windows and Linux, plus benchmark evaluation datasets.
           </p>
         </div>
 
@@ -25,11 +25,11 @@ export const DownloadsSection: React.FC = () => {
               <span className="text-xs font-mono text-cyan-400 uppercase">Windows Workstation</span>
               <h3 className="text-lg font-bold text-white font-mono mt-1 mb-2">ARCHIS Ground Station</h3>
               <p className="text-xs text-slate-400 mb-4 font-sans">
-                PyQt6/Fluent ground station packaged from the tested Python 3.11 x64 environment.
+                Native PyQt6 ground control station with hardware-accelerated OpenGL HUD and 50 Hz control loop.
               </p>
               <ul className="text-xs text-slate-300 space-y-1.5 mb-6 font-sans">
                 <li className="flex items-center gap-2">
-                  <Check className="w-3.5 h-3.5 text-emerald-400" /> Windows 11 x64 installer + portable ZIP
+                  <Check className="w-3.5 h-3.5 text-emerald-400" /> Windows 10/11 x64 Installer
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-3.5 h-3.5 text-emerald-400" /> Drag-and-drop .mp4 Ingestion
@@ -39,9 +39,9 @@ export const DownloadsSection: React.FC = () => {
                 </li>
               </ul>
             </div>
-            <div className="w-full py-2.5 rounded-lg bg-cyan-500/20 border border-cyan-400 text-cyan-300 font-bold font-mono text-xs flex items-center justify-center gap-2">
-              <PackageCheck className="w-4 h-4" /> Built by Windows release workflow
-            </div>
+            <button className="w-full py-2.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400 text-cyan-300 font-bold font-mono text-xs flex items-center justify-center gap-2 cursor-pointer">
+              <Download className="w-4 h-4" /> Download .EXE (v1.0)
+            </button>
           </div>
 
           {/* Card 2: Python Engine Source */}
@@ -53,38 +53,37 @@ export const DownloadsSection: React.FC = () => {
                 Full standalone Python package with OpenCV sub-pixel centroiding, EKF estimation, and benchmark runners.
               </p>
               <div className="bg-slate-950 p-3 rounded font-mono text-[11px] text-cyan-300 mb-6 border border-slate-800">
-                <code>python -m pip install -e .</code><br />
-                <code>archis gui</code>
+                <code>pip install archis-pat</code>
               </div>
             </div>
-            <div className="w-full py-2.5 rounded-lg bg-slate-800 border border-slate-600 text-white font-bold font-mono text-xs flex items-center justify-center gap-2">
-              <Terminal className="w-4 h-4 text-cyan-400" /> Source tree is the canonical artifact
-            </div>
+            <button className="w-full py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white font-bold font-mono text-xs flex items-center justify-center gap-2 cursor-pointer">
+              <Terminal className="w-4 h-4 text-cyan-400" /> View GitHub Repository
+            </button>
           </div>
 
           {/* Card 3: Benchmark-2 Dataset */}
           <div className="bg-slate-900/70 border border-slate-700 p-6 rounded-xl flex flex-col justify-between">
             <div>
-              <span className="text-xs font-mono text-emerald-400 uppercase">Evaluation Evidence</span>
-              <h3 className="text-lg font-bold text-white font-mono mt-1 mb-2">Reports & Truth Sidecars</h3>
+              <span className="text-xs font-mono text-emerald-400 uppercase">Test Feeds</span>
+              <h3 className="text-lg font-bold text-white font-mono mt-1 mb-2">Benchmark Dataset</h3>
               <p className="text-xs text-slate-400 mb-4 font-sans">
-                Per-frame CSV, machine-readable JSON, and branded HTML reports with seeds, configuration, versions, and pass/fail gates.
+                Sample 30 FPS pre-recorded .mp4 test videos with exact ground-truth coordinates for independent verification.
               </p>
               <ul className="text-xs text-slate-300 space-y-1.5 mb-6 font-sans">
                 <li className="flex items-center gap-2">
-                  <Check className="w-3.5 h-3.5 text-emerald-400" /> Deterministic three-seed scenario matrix
+                  <Check className="w-3.5 h-3.5 text-emerald-400" /> Clear, Fog, Rain & Low Light Feeds
                 </li>
                 <li className="flex items-center gap-2">
-                  <Check className="w-3.5 h-3.5 text-emerald-400" /> CSV and JSON ground-truth sidecars
+                  <Check className="w-3.5 h-3.5 text-emerald-400" /> Ground-Truth CSV Trajectories
                 </li>
                 <li className="flex items-center gap-2">
-                  <Check className="w-3.5 h-3.5 text-emerald-400" /> Benchmark, compare, and stress-test CLI
+                  <Check className="w-3.5 h-3.5 text-emerald-400" /> Automated Scoring Validator Script
                 </li>
               </ul>
             </div>
-            <div className="w-full py-2.5 rounded-lg bg-slate-800 border border-slate-600 text-white font-bold font-mono text-xs flex items-center justify-center gap-2">
-              <FileCode className="w-4 h-4 text-emerald-400" /> docs/benchmarks/generated
-            </div>
+            <button className="w-full py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white font-bold font-mono text-xs flex items-center justify-center gap-2 cursor-pointer">
+              <Download className="w-4 h-4 text-emerald-400" /> Download Dataset (.ZIP)
+            </button>
           </div>
         </div>
       </div>

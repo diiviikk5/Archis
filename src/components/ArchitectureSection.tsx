@@ -1,41 +1,41 @@
 import React from 'react';
-import { Radio, Eye, Cpu, Gauge, RefreshCw } from 'lucide-react';
+import { Layers, Radio, Eye, Cpu, Gauge, RefreshCw } from 'lucide-react';
 
 export const ArchitectureSection: React.FC = () => {
   const layers = [
     {
       num: '01',
-      title: 'Scenario & World',
+      title: 'World & Orbit Dynamics',
       plain: 'Moves the Target',
-      tech: 'Versioned JSON scenarios drive a seeded fixed-step 2D world, configurable beacon trajectories, decoys, and repeatable disturbances.',
+      tech: 'SGP4/SDP4 orbital propagation, 6-DOF UAV kinematics, and OpenUSD scene graph representing satellite ephemeris.',
       icon: Radio
     },
     {
       num: '02',
-      title: 'Disturbance Pipeline',
+      title: 'Optical Physics Layer',
       plain: 'Simulates Atmosphere',
-      tech: 'A defined render order applies camera motion, platform jitter, atmospheric blur and attenuation, sensor noise, then configured dropout.',
+      tech: 'Kolmogorov phase screens via 2D FFT spectral synthesis, Rytov scintillation flicker, and Koschmieder contrast extinction.',
       icon: Eye
     },
     {
       num: '03',
       title: 'Sensor & Camera Layer',
-      plain: 'Normalizes Every Source',
-      tech: 'Immutable timestamped frame packets unify the simulator, native-resolution MP4 files, single images, and image sequences.',
+      plain: 'Captures Real Photons',
+      tech: '640x480 Monochrome FPA, 4°x3° FOV (109.08 µrad/px IFOV), rolling shutter geometric skew, and Poisson shot noise.',
       icon: Gauge
     },
     {
       num: '04',
       title: 'AI PAT Engine',
       plain: 'Understands & Tracks',
-      tech: 'Full-frame MAD/DoG proposals, NanoSpot refinement, compact candidate evidence, optional CodeLock identity, and a six-state constant-acceleration Kalman filter.',
+      tech: 'Sub-pixel 2D Gaussian centroiding (<1.2 px) + Unscented Kalman Filter (UKF) trajectory prediction with covariance reacquisition.',
       icon: Cpu
     },
     {
       num: '05',
       title: 'Control & Gimbal Layer',
       plain: 'Steers the Actuators',
-      tech: 'Explicit SEARCH→ACQUIRE→TRACK→COAST→REACQUIRE logic drives configurable PID, anti-windup, feed-forward, rate, acceleration, and travel limits.',
+      tech: 'Cascaded position/velocity loop with velocity feedforward, second-order gimbal inertia, and 5°-10°/s slew limiter.',
       icon: RefreshCw
     }
   ];
@@ -51,7 +51,7 @@ export const ArchitectureSection: React.FC = () => {
             5-Layer Decoupled Architecture
           </h2>
           <p className="text-slate-400 max-w-2xl mx-auto text-sm">
-            The simulator, algorithms, control loop, and evaluator are joined by immutable contracts so ground truth never enters detection or control.
+            Engineered with Layered Disclosure: every component delivers intuitive plain-English functionality paired with aerospace-grade mathematics.
           </p>
         </div>
 
@@ -83,14 +83,14 @@ export const ArchitectureSection: React.FC = () => {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <span className="text-cyan-400 font-bold uppercase tracking-wider">
-                Reproducibility Contract: Fixed Simulation Clock & Seeded Randomness
+                Numerical Integrity Proof: Decoupled Simulation & Control Clock
               </span>
               <p className="text-slate-300 text-sm font-sans mt-1">
-                Each scenario records its update rate and random seed. The engine advances by that fixed step while the PyQt interface consumes immutable snapshots on a worker thread, keeping GUI timing out of the experiment.
+                Physics propagation and gimbal mechatronics execute on a deterministic <span className="text-white font-bold">50 Hz FixedUpdate tick</span>, completely decoupled from the variable GUI rendering thread (30-60 Hz). This eliminates frame-rate-dependent PID gain shifts.
               </p>
             </div>
             <div className="shrink-0 px-4 py-2 rounded bg-cyan-500/10 border border-cyan-400 text-cyan-300 font-bold text-center">
-              30 Hz Default
+              50 Hz Deterministic
             </div>
           </div>
         </div>

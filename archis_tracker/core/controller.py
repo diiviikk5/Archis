@@ -18,10 +18,6 @@ class GimbalController:
         self.integral_tilt: float = 0.0
         self.prev_error_pan: float = 0.0
         self.prev_error_tilt: float = 0.0
-        self.derivative_pan: float = 0.0
-        self.derivative_tilt: float = 0.0
-        self.filtered_feedforward_pan: float = 0.0
-        self.filtered_feedforward_tilt: float = 0.0
         
         # Spiral search state for autonomous re-acquisition
         self.search_time: float = 0.0
@@ -33,8 +29,6 @@ class GimbalController:
         self.integral_tilt = 0.0
         self.prev_error_pan = 0.0
         self.prev_error_tilt = 0.0
-        self.derivative_pan = self.derivative_tilt = 0.0
-        self.filtered_feedforward_pan = self.filtered_feedforward_tilt = 0.0
         self.search_time = 0.0
 
     def start_search(self, current_pan: float, current_tilt: float):
@@ -45,19 +39,13 @@ class GimbalController:
 
     def compute_tracking_command(self, target_vx: float, target_vy: float,
                                  feedforward_vx: float, feedforward_vy: float,
-                                 dt: float, *,
-                                 sensor_width_px: Optional[float] = None,
-                                 sensor_height_px: Optional[float] = None) -> Tuple[float, float]:
+                                 dt: float) -> Tuple[float, float]:
         """
         Computes pan and tilt angular rate commands (deg/s) using closed-loop PID
         to drive the target to the optical boresight center (320, 240).
         """
-        width = float(sensor_width_px or self.cam_config.viewport_width)
-        height = float(sensor_height_px or self.cam_config.viewport_height)
-        center_x = width / 2.0
-        center_y = height / 2.0
-        pixels_per_deg_x = width / self.cam_config.fov_x_deg
-        pixels_per_deg_y = height / self.cam_config.fov_y_deg
+        center_x = self.cam_config.center_x  # 320.0
+        center_y = self.cam_config.center_y  # 240.0
         
         # Pixel error from boresight
         err_x = target_vx - center_x
@@ -69,58 +57,40 @@ class GimbalController:
         if abs(err_y) < self.config.deadband_px:
             err_y = 0.0
             
-        deg_err_pan = err_x / pixels_per_deg_x
-        deg_err_tilt = err_y / pixels_per_deg_y
-
-        # PID gains operate on angular error and all values come from the
-        # configuration. Derivative smoothing prevents pixel noise from
-        # becoming a rate reversal.
+        # Convert pixel error to angular error (degrees)
+        # Pan: +err_x (target to right) requires +pan to center target
+        deg_err_pan = err_x / self.cam_config.pixels_per_deg_x
+        # Tilt: +err_y (target below center) requires +tilt to center target
+        deg_err_tilt = err_y / self.cam_config.pixels_per_deg_y
+        
+        # Update integrals with anti-windup clamping
         limit = self.config.anti_windup_limit
         self.integral_pan = float(np.clip(self.integral_pan + deg_err_pan * dt, -limit, limit))
         self.integral_tilt = float(np.clip(self.integral_tilt + deg_err_tilt * dt, -limit, limit))
         
         # Derivatives
-        raw_deriv_pan = (deg_err_pan - self.prev_error_pan) / max(1e-4, dt)
-        raw_deriv_tilt = (deg_err_tilt - self.prev_error_tilt) / max(1e-4, dt)
-        alpha = self.config.derivative_smoothing
-        self.derivative_pan = alpha * self.derivative_pan + (1.0 - alpha) * raw_deriv_pan
-        self.derivative_tilt = alpha * self.derivative_tilt + (1.0 - alpha) * raw_deriv_tilt
+        deriv_x = (err_x - self.prev_error_pan * self.cam_config.pixels_per_deg_x) / max(1e-4, dt)
+        deriv_y = (err_y - self.prev_error_tilt * self.cam_config.pixels_per_deg_y) / max(1e-4, dt)
         self.prev_error_pan = deg_err_pan
         self.prev_error_tilt = deg_err_tilt
-
-        u_fb_pan = (
-            self.config.kp_pan * deg_err_pan
-            + self.config.ki_pan * self.integral_pan
-            + self.config.kd_pan * self.derivative_pan
-        )
-        u_fb_tilt = (
-            self.config.kp_tilt * deg_err_tilt
-            + self.config.ki_tilt * self.integral_tilt
-            + self.config.kd_tilt * self.derivative_tilt
-        )
+        
+        # Feedback PID (in degrees/s)
+        # Kp * err_x / px_per_deg_x gives slew rate to eliminate position error
+        kp = 6.0
+        ki = 0.8
+        kd = 0.25
+        
+        u_fb_pan = (kp * err_x + ki * self.integral_pan * self.cam_config.pixels_per_deg_x + kd * deriv_x) / self.cam_config.pixels_per_deg_x
+        u_fb_tilt = (kp * err_y + ki * self.integral_tilt * self.cam_config.pixels_per_deg_y + kd * deriv_y) / self.cam_config.pixels_per_deg_y
         
         # Feedforward from target world velocity estimate
-        ff_pan = float(np.clip(
-            feedforward_vx / pixels_per_deg_x,
-            -self.config.max_feedforward_rate_deg_s,
-            self.config.max_feedforward_rate_deg_s,
-        ))
-        ff_tilt = float(np.clip(
-            feedforward_vy / pixels_per_deg_y,
-            -self.config.max_feedforward_rate_deg_s,
-            self.config.max_feedforward_rate_deg_s,
-        ))
-        ff_alpha = self.config.feedforward_smoothing
-        self.filtered_feedforward_pan = (1.0 - ff_alpha) * self.filtered_feedforward_pan + ff_alpha * ff_pan
-        self.filtered_feedforward_tilt = (1.0 - ff_alpha) * self.filtered_feedforward_tilt + ff_alpha * ff_tilt
+        ff_pan = feedforward_vx / self.cam_config.pixels_per_deg_x
+        ff_tilt = feedforward_vy / self.cam_config.pixels_per_deg_y
         
-        cmd_pan = u_fb_pan + self.config.feedforward_gain * self.filtered_feedforward_pan
-        cmd_tilt = u_fb_tilt + self.config.feedforward_gain * self.filtered_feedforward_tilt
+        cmd_pan = u_fb_pan + ff_pan
+        cmd_tilt = u_fb_tilt + ff_tilt
         
-        return (
-            float(np.clip(cmd_pan, -self.cam_config.max_pan_speed_deg_s, self.cam_config.max_pan_speed_deg_s)),
-            float(np.clip(cmd_tilt, -self.cam_config.max_tilt_speed_deg_s, self.cam_config.max_tilt_speed_deg_s)),
-        )
+        return float(cmd_pan), float(cmd_tilt)
 
     def compute_search_command(self, dt: float) -> Tuple[float, float]:
         """
@@ -128,17 +98,15 @@ class GimbalController:
         Expands Archimedean spiral trajectory around the last known target coordinates.
         """
         self.search_time += dt
-        timeout = max(dt, self.config.search_timeout_s)
-        t = self.search_time % timeout
+        t = self.search_time
         
         speed = self.config.search_spiral_speed
         w = 4.0  # Angular scan frequency (rad/s)
-        radial_rate = max(0.01, self.config.search_spiral_pitch) * w / (2.0 * np.pi)
-        r = radial_rate * t
+        r = min(1.8, 0.4 * t)  # Radius expansion rate (degrees)
         
         # Spiral velocity vector
-        cmd_pan = -r * w * np.sin(w * t) + radial_rate * np.cos(w * t)
-        cmd_tilt = r * w * np.cos(w * t) + radial_rate * np.sin(w * t)
+        cmd_pan = -r * w * np.sin(w * t) + 0.4 * np.cos(w * t)
+        cmd_tilt = r * w * np.cos(w * t) + 0.4 * np.sin(w * t)
         
         # Normalize to search speed
         mag = np.hypot(cmd_pan, cmd_tilt)
