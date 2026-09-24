@@ -90,11 +90,6 @@ class TrackingInterface(QWidget):
         self.source_button.setFixedWidth(130)
         self.source_button.clicked.connect(window._open_video)
         transport.addWidget(self.source_button)
-        self.truth_button = PushButton(FIF.DOCUMENT, "Load truth")
-        self.truth_button.setFixedWidth(110)
-        self.truth_button.clicked.connect(window._open_truth)
-        self.truth_button.setToolTip("CSV/JSON frame or timestamp centroid sidecar")
-        transport.addWidget(self.truth_button)
         self.playback_speed = ComboBox()
         self.playback_speed.addItems(["0.25x", "0.5x", "1x real time"])
         self.playback_speed.setCurrentIndex(2)
@@ -219,32 +214,19 @@ class TrackingInterface(QWidget):
             self.inspector.setCurrentIndex(0)
         self.fields["Detector"].setText(detection.algorithm_used if detection else "--")
         model = tracker.detector.ai_detector
-        ai_active = tracker.detector.config.algorithm in (TrackingAlgorithm.AI_ONNX, TrackingAlgorithm.HYBRID)
+        ai_active = tracker.detector.config.algorithm == TrackingAlgorithm.AI_ONNX
         self.fields["Model"].setText(model.status if ai_active else "Not selected")
         self.fields["Model"].setToolTip(model.last_error or str(model.model_path))
-        identity = tracker.last_result.diagnostics.get("identity_status") if tracker.last_result else None
-        self.fields["Post-filter"].setText(identity or ("AI shape + temporal acquisition" if ai_active else "Temporal acquisition"))
+        self.fields["Post-filter"].setText("Shape heuristic" if ai_active and tracker.detector.config.enable_ai_decoy_filter else "Off")
         self.fields["Response"].setText(f"{detection.confidence:.3f}" if detection else "--")
         self.fields["Response"].setToolTip("Uncalibrated detector response, not a probability of correctness")
         self.fields["Centroid"].setText(f"({detection.x:.1f}, {detection.y:.1f}) px" if detection and detection.detected else "Not detected")
-        center_x = self.viewport.frame_width / 2.0
-        center_y = self.viewport.frame_height / 2.0
-        self.fields["Centroid"].setToolTip(
-            f"Native image coordinates. Boresight center is ({center_x:.1f}, {center_y:.1f})."
-        )
+        self.fields["Centroid"].setToolTip("Image pixel coordinates on 640x480 sensor. Boresight center is (320, 240).")
         err_val = tracker.telemetry.current_error_px if detection and detection.detected else 0.0
         self.fields["Boresight Error"].setText(f"{err_val:.2f} px (<=10 px PASS)" if detection and detection.detected else "--")
         self.fields["Boresight Error"].setStyleSheet("color: #4ade80; font-weight: bold;" if err_val <= 10.0 else "color: #f87171;")
         self.fields["SNR"].setText(f"{detection.snr_db:.1f} dB" if detection and detection.detected else "--")
-        command = tracker.last_result.command if tracker.last_result else None
-        if source and command is not None:
-            self.fields["Pan / tilt"].setText(
-                f"theoretical {command.pan_rate_deg_s:+.2f} / {command.tilt_rate_deg_s:+.2f} deg/s"
-            )
-        else:
-            self.fields["Pan / tilt"].setText(
-                f"{tracker.camera.pan_deg:+.2f} / {tracker.camera.tilt_deg:+.2f} deg"
-            )
+        self.fields["Pan / tilt"].setText(f"{tracker.camera.pan_deg:+.2f} / {tracker.camera.tilt_deg:+.2f} deg")
         self.fields["Latency"].setText(f"{tracker.telemetry.pipeline_latency_ms:.2f} ms")
         self.capture_button.setEnabled(self.viewport.frame_image is not None)
         self.status_line.setText(f"{'Video' if source else 'Simulation'}  |  {tracker.telemetry.total_frames} frames  |  {self.window.playback_scale:g}x playback")

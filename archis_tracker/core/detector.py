@@ -43,7 +43,6 @@ class BeaconDetector:
         # Stored target template for Correlation Tracking (NCC)
         self.target_template: Optional[np.ndarray] = None
         self.template_size = 21
-        self.last_candidates: List[DetectionResult] = []
 
     def apply_agc(self, frame: np.ndarray) -> np.ndarray:
         """Applies Automatic Gain Control (Linear, Histogram Equalization, Plateau)."""
@@ -64,7 +63,6 @@ class BeaconDetector:
         """
         Detects designated optical beacon using selected aerospace CV tracking algorithm.
         """
-        self.last_candidates = []
         h, w = frame.shape
         agc_frame = self.apply_agc(frame)
         
@@ -172,30 +170,14 @@ class BeaconDetector:
         filtered = cv2.medianBlur(search_frame, 3)
         sh, sw = filtered.shape
         
-        # 3. Robust full-frame proposal: median/MAD intensity threshold plus
-        # difference-of-Gaussians.  Unlike a brightest-pixel shortcut this
-        # keeps multiple candidates for association and identity verification.
+        # 3. Dynamic statistical thresholding
         mean_val, std_val = cv2.meanStdDev(filtered)
         mean_bg = float(mean_val[0][0])
         std_bg = float(std_val[0][0])
-        pixels = filtered.astype(np.float32)
-        median = float(np.median(pixels))
-        mad = float(np.median(np.abs(pixels - median)))
-        robust_sigma = max(1.0, 1.4826 * mad)
-        percentile = float(np.percentile(pixels, 99.5))
-        dynamic_thresh = max(32.0, median + 7.0 * robust_sigma)
-        if percentile > median + 5.0:
-            dynamic_thresh = min(dynamic_thresh, percentile)
-        dynamic_thresh = min(254.0, dynamic_thresh)
-        _, intensity_mask = cv2.threshold(filtered, dynamic_thresh, 255, cv2.THRESH_BINARY)
-        small = cv2.GaussianBlur(filtered, (0, 0), 0.8)
-        large = cv2.GaussianBlur(filtered, (0, 0), 2.4)
-        dog = cv2.subtract(small, large)
-        dog_median = float(np.median(dog))
-        dog_mad = float(np.median(np.abs(dog.astype(np.float32) - dog_median)))
-        dog_threshold = min(254.0, max(28.0, dog_median + 7.0 * max(1.0, 1.4826 * dog_mad)))
-        _, dog_mask = cv2.threshold(dog, dog_threshold, 255, cv2.THRESH_BINARY)
-        binary = cv2.bitwise_or(intensity_mask, dog_mask)
+        
+        k_factor = self.config.k_sigma_threshold
+        dynamic_thresh = max(35.0, min(240.0, mean_bg + k_factor * std_bg))
+        _, binary = cv2.threshold(filtered, int(dynamic_thresh), 255, cv2.THRESH_BINARY)
         
         # Morphological opening to strip salt noise
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
@@ -224,8 +206,7 @@ class BeaconDetector:
                         "local_bbox": (bx, by, bw, bh),
                         "global_bbox": (bx + crop_x0, by + crop_y0, bw, bh),
                         "peak": peak,
-                        "area": area,
-                        "compactness": float(area) / float(max(1, bw * bh)),
+                        "area": area
                     })
 
         # Fallback if binary threshold failed to catch beacon
@@ -239,21 +220,13 @@ class BeaconDetector:
                     "local_bbox": (max(0, lx-5), max(0, ly-5), 11, 11),
                     "global_bbox": (max(0, lx-5 + crop_x0), max(0, ly-5 + crop_y0), 11, 11),
                     "peak": float(max_val),
-                    "area": 25.0,
-                    "compactness": 1.0,
+                    "area": 25.0
                 })
 
         if not candidates:
             return DetectionResult(detected=False, gate_bbox=gate_box)
 
-        # 5. Candidate verification and data association.  The compact
-        # verifier is intentionally soft evidence; CodeLock performs the hard
-        # temporal identity decision when configured.
-        for candidate in candidates:
-            contrast = np.clip((candidate["peak"] - mean_bg) / max(40.0, 3.0 * std_bg), 0.0, 1.0)
-            size = np.clip(candidate["area"] / max(1.0, self.config.min_target_area * 2.0), 0.0, 1.0)
-            candidate["verifier_score"] = float(0.55 * contrast + 0.30 * candidate["compactness"] + 0.15 * size)
-
+        # 5. Data Association & Decoy Gating
         if predicted_pos is not None:
             best = self.associator.associate_best_candidate(
                 candidates, predicted_pos[0], predicted_pos[1], cov_matrix
@@ -261,7 +234,7 @@ class BeaconDetector:
             if best is None:
                 best = candidates[0]
         else:
-            best = max(candidates, key=lambda c: (c["verifier_score"], c["peak"]))
+            best = max(candidates, key=lambda c: c["peak"])
 
         gbx, gby, gbw, gbh = best["global_bbox"]
         lbx, lby, lbw, lbh = best["local_bbox"]
@@ -270,12 +243,7 @@ class BeaconDetector:
         algo = self.config.algorithm
         final_x, final_y = best["x"], best["y"]
 
-        heatmap = None
-        heatmap_bbox = None
-        is_decoy = False
-        ai_confidence = None
-
-        if algo in (TrackingAlgorithm.IWC, TrackingAlgorithm.HYBRID):
+        if algo == TrackingAlgorithm.IWC:
             # Intensity-Weighted Centroid
             pad = 3
             rx1 = max(0, lbx - pad)
@@ -291,28 +259,6 @@ class BeaconDetector:
                 yy, xx = np.indices(roi_sub.shape)
                 final_x = float(np.sum(xx * roi_sub) / mass) + rx1 + crop_x0
                 final_y = float(np.sum(yy * roi_sub) / mass) + ry1 + crop_y0
-
-            if algo == TrackingAlgorithm.HYBRID and self.ai_detector.is_loaded:
-                patch_size = 64
-                center_x = int(round(final_x - crop_x0))
-                center_y = int(round(final_y - crop_y0))
-                px1 = max(0, min(sw - patch_size, center_x - patch_size // 2)) if sw >= patch_size else 0
-                py1 = max(0, min(sh - patch_size, center_y - patch_size // 2)) if sh >= patch_size else 0
-                patch = search_frame[py1:min(sh, py1 + patch_size), px1:min(sw, px1 + patch_size)]
-                detected_ai, ax, ay, ai_confidence, is_decoy, heatmap = self.ai_detector.detect_spot(
-                    patch,
-                    min_confidence=self.config.ai_confidence_threshold,
-                    enable_decoy_filter=self.config.enable_ai_decoy_filter,
-                )
-                heatmap_bbox = (crop_x0 + px1, crop_y0 + py1, patch.shape[1], patch.shape[0])
-                ai_x = float(crop_x0 + px1 + ax)
-                ai_y = float(crop_y0 + py1 + ay)
-                # NanoSpot is a local refiner, never a license to jump to a
-                # different response inside the crop.  This protects square
-                # and saturated beacons while retaining sub-pixel refinement
-                # on Gaussian spots.
-                if detected_ai and not is_decoy and np.hypot(ai_x - final_x, ai_y - final_y) <= 2.5:
-                    final_x, final_y = ai_x, ai_y
 
         elif algo == TrackingAlgorithm.GAUSSIAN_FIT:
             # Analytical 2D Gaussian Surface Fitting with IWC baseline
@@ -388,24 +334,7 @@ class BeaconDetector:
         noise_floor = max(1.0, std_bg)
         signal_level = max(1.0, best["peak"] - mean_bg)
         snr_db = float(20.0 * np.log10(signal_level / noise_floor))
-        classical_confidence = float(np.clip(signal_level / (3.0 * noise_floor), 0.0, 1.0))
-        verifier_confidence = float(best.get("verifier_score", classical_confidence))
-        if algo == TrackingAlgorithm.HYBRID:
-            confidence = 0.45 * classical_confidence + 0.25 * verifier_confidence
-            confidence += 0.30 * (float(ai_confidence) if ai_confidence is not None else verifier_confidence)
-            confidence = float(np.clip(confidence, 0.0, 1.0))
-        else:
-            confidence = classical_confidence
-
-        self.last_candidates = [
-            DetectionResult(
-                True, float(candidate["x"]), float(candidate["y"]),
-                candidate["global_bbox"], gate_box,
-                float(candidate["verifier_score"]), float(candidate["peak"]),
-                snr_db, algo.value,
-            )
-            for candidate in sorted(candidates, key=lambda item: item["verifier_score"], reverse=True)
-        ]
+        confidence = float(np.clip(signal_level / (3.0 * noise_floor), 0.0, 1.0))
 
         return DetectionResult(
             detected=True,
@@ -416,8 +345,5 @@ class BeaconDetector:
             confidence=confidence,
             peak_intensity=best["peak"],
             snr_db=snr_db,
-            algorithm_used=algo.value,
-            heatmap=heatmap,
-            heatmap_bbox=heatmap_bbox,
-            is_decoy=is_decoy,
+            algorithm_used=algo.value
         )

@@ -12,7 +12,7 @@ def build():
            "ArchisOpticalTracker.spec", "--clean", "--noconfirm"]
     res = subprocess.run(cmd)
     if res.returncode == 0:
-        print("Portable application built successfully in dist/ArchisTracker/")
+        print("Standalone executable built successfully in dist/ArchisOpticalTracker.exe")
     else:
         print("PyInstaller build failed with return code:", res.returncode)
 

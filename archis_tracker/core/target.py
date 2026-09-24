@@ -14,7 +14,6 @@ class TargetBeacon:
         self.target_id = target_id
         self.config = config or TargetConfig()
         self.is_primary = is_primary
-        self.rng = np.random.default_rng(self.config.random_seed + target_id)
         
         # Current world coordinates & kinematics
         self.x: float = self.config.initial_x if self.config.initial_x is not None else 1000.0
@@ -41,7 +40,7 @@ class TargetBeacon:
         self.center_y: float = self.y
         
         # Random motion state (Brownian with momentum)
-        self.random_heading: float = float(self.rng.uniform(0, 2 * np.pi))
+        self.random_heading: float = np.random.uniform(0, 2 * np.pi)
         
         # Trail history for visualization
         self.trail: deque = deque(maxlen=200)
@@ -57,8 +56,6 @@ class TargetBeacon:
         self.time_elapsed = 0.0
         self.phase = 0.0
         self.ax = self.ay = 0.0
-        self.rng = np.random.default_rng(self.config.random_seed + self.target_id)
-        self.random_heading = float(self.rng.uniform(0, 2 * np.pi))
         self.trail.clear()
         self.trail.append((self.x, self.y))
 
@@ -82,9 +79,7 @@ class TargetBeacon:
             self.y += self.vy * dt
             
             # Boundary bounce with margin
-            # Keep the target centre inside the region that a 640x480 camera
-            # can physically centre while its viewport remains in the world.
-            margin = min(320.0, world_width / 2.0 - 1.0, world_height / 2.0 - 1.0)
+            margin = 50.0
             if self.x <= margin:
                 self.x = margin
                 self.vx = abs(self.vx)
@@ -112,11 +107,11 @@ class TargetBeacon:
 
         elif self.trajectory == MotionTrajectory.RANDOM:
             # Smooth Ornstein-Uhlenbeck Brownian drift
-            heading_change = self.rng.normal(0.0, 0.4) * dt * 5.0
+            heading_change = np.random.normal(0.0, 0.4) * dt * 5.0
             self.random_heading += heading_change
             
             # Repel from boundaries
-            margin = min(320.0, world_width / 2.0 - 1.0, world_height / 2.0 - 1.0)
+            margin = 150.0
             if self.x < margin:
                 self.random_heading = 0.0
             elif self.x > world_width - margin:
@@ -224,13 +219,8 @@ class TargetManager:
         self._next_id = 2
 
     def add_decoy(self, x: float, y: float, shape: TargetShape = TargetShape.GAUSSIAN,
-                  size: int = 10, speed: float = 35.0,
-                  trajectory: MotionTrajectory = MotionTrajectory.STRAIGHT_LINE,
-                  intensity: float = 220.0, random_seed: int = 26169) -> TargetBeacon:
-        cfg = TargetConfig(
-            shape=shape, size=size, speed=speed, trajectory=trajectory,
-            intensity=intensity, initial_x=x, initial_y=y, random_seed=random_seed,
-        )
+                  size: int = 10, speed: float = 35.0, trajectory: MotionTrajectory = MotionTrajectory.STRAIGHT_LINE) -> TargetBeacon:
+        cfg = TargetConfig(shape=shape, size=size, speed=speed, trajectory=trajectory, initial_x=x, initial_y=y)
         decoy = TargetBeacon(target_id=self._next_id, config=cfg, is_primary=False)
         self._next_id += 1
         self.secondary_targets.append(decoy)

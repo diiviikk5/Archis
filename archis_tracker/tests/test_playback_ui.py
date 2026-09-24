@@ -1,6 +1,5 @@
 """Desktop pacing and viewport integration checks without a visible window."""
 import os
-import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -30,18 +29,13 @@ def qt_app():
     yield app
 
 
-def test_playback_preserves_sensor_period(window, monkeypatch, qt_app):
+def test_playback_preserves_sensor_period(window, monkeypatch):
     periods = []
     monkeypatch.setattr(window.tracker, "step", lambda dt: periods.append(dt))
     window.is_running = True
     for index, scale in enumerate((0.25, 0.5, 1.0)):
         window.tracking_interface.playback_speed.setCurrentIndex(index)
         window._simulation_tick()
-        deadline = time.monotonic() + 1.0
-        while window.worker_busy and time.monotonic() < deadline:
-            qt_app.processEvents()
-            time.sleep(0.001)
-        assert not window.worker_busy
         assert window.sim_timer.interval() == round(
             1000 / window.tracker.cam_config.update_rate_hz / scale
         )
@@ -75,18 +69,3 @@ def test_capture_writes_real_frame(window, monkeypatch, tmp_path):
                         lambda *args: (str(path), 'PNG'))
     window.tracking_interface._capture()
     assert path.read_bytes().startswith(b'\x89PNG')
-
-
-def test_turbulence_controls_update_live_configuration(window):
-    panel = window.control_panel
-    panel.spin_turbulence_warp.setValue(4.5)
-    panel.spin_turbulence_blur.setValue(0.9)
-    panel.spin_scintillation.setValue(0.14)
-    panel.spin_illumination.setValue(0.07)
-    panel.spin_illumination_hz.setValue(2.5)
-    config = window.tracker.disturb_config
-    assert config.turbulence_warp_px == 4.5
-    assert config.turbulence_blur_sigma_px == 0.9
-    assert config.scintillation_log_std == 0.14
-    assert config.illumination_flicker_fraction == 0.07
-    assert config.illumination_flicker_hz == 2.5
