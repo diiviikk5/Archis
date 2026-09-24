@@ -31,7 +31,13 @@ class TelemetryChartsWidget(QWidget):
         self.plot_error.showGrid(x=True, y=True, alpha=0.25)
         self.plot_error.setLabel('left', 'Error', units='px')
         self.plot_error.setLabel('bottom', 'Sim Time', units='s')
-        self.curve_error = self.plot_error.plot(pen=pg.mkPen(color='#38bdf8', width=1.5))
+        self.plot_error.addLegend(offset=(10, 10))
+        self.curve_error = self.plot_error.plot(
+            pen=pg.mkPen(color='#38bdf8', width=1.5), name="Pointing offset"
+        )
+        self.curve_centroid = self.plot_error.plot(
+            pen=pg.mkPen(color='#f59e0b', width=1.5), name="Centroid error"
+        )
         # 10px Specification reference line
         line_10px = pg.InfiniteLine(pos=10.0, angle=0, pen=pg.mkPen(color='#4ade80', width=1.2, style=pg.QtCore.Qt.PenStyle.DashLine))
         self.plot_error.addItem(line_10px)
@@ -53,7 +59,10 @@ class TelemetryChartsWidget(QWidget):
         self.plot_perf.setLabel('left', 'FPS / Speed')
         self.plot_perf.setLabel('bottom', 'Sim Time', units='s')
         self.plot_perf.addLegend(offset=(10, 10))
-        self.curve_fps = self.plot_perf.plot(pen=pg.mkPen(color='#4ade80', width=1.5), name="FPS")
+        self.curve_fps = self.plot_perf.plot(pen=pg.mkPen(color='#4ade80', width=1.5), name="Source FPS")
+        self.curve_processing_fps = self.plot_perf.plot(
+            pen=pg.mkPen(color='#38bdf8', width=1.5), name="Processing FPS"
+        )
         self.curve_speed = self.plot_perf.plot(pen=pg.mkPen(color='#f43f5e', width=1.5), name="Target Speed (px/s)")
         self.tabs.addTab(self.plot_perf, "Performance & Speed")
         
@@ -71,13 +80,14 @@ class TelemetryChartsWidget(QWidget):
             plot.hideButtons()
 
     def clear_data(self):
-        for curve in (self.curve_error, self.curve_pan, self.curve_tilt,
-                      self.curve_fps, self.curve_speed, self.curve_fft):
+        for curve in (self.curve_error, self.curve_centroid, self.curve_pan, self.curve_tilt,
+                      self.curve_fps, self.curve_processing_fps, self.curve_speed, self.curve_fft):
             curve.clear()
 
     def update_data(self, times: Deque[float], errors: Deque[float],
                     pans: Deque[float], tilts: Deque[float],
-                    fps_list: Deque[float], speeds: Deque[float]):
+                    fps_list: Deque[float], speeds: Deque[float],
+                    centroid_errors=None, processing_fps=None):
         """Feeds new rolling telemetry data points to pyqtgraph curves."""
         if len(times) < 2:
             return
@@ -87,11 +97,15 @@ class TelemetryChartsWidget(QWidget):
         
         if current_idx == 0:
             self.curve_error.setData(t_arr, np.array(errors))
+            if centroid_errors is not None:
+                self.curve_centroid.setData(t_arr, np.array(centroid_errors, dtype=float))
         elif current_idx == 1:
             self.curve_pan.setData(t_arr, np.array(pans))
             self.curve_tilt.setData(t_arr, np.array(tilts))
         elif current_idx == 2:
             self.curve_fps.setData(t_arr, np.array(fps_list))
+            if processing_fps is not None:
+                self.curve_processing_fps.setData(t_arr, np.array(processing_fps))
             self.curve_speed.setData(t_arr, np.array(speeds))
         elif current_idx == 3:
             # Compute real-time FFT on last 128 error points

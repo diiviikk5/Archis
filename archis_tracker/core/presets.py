@@ -73,6 +73,7 @@ def load_and_apply_preset(tracker, path: str | Path) -> LoadedPreset:
     target = _section(data, "target")
     camera = _section(data, "camera")
     disturbances = _section(data, "disturbances")
+    dropout = _section(disturbances, "dropout")
 
     values = {
         "shape": _enum(target, "shape", TargetShape),
@@ -86,6 +87,11 @@ def load_and_apply_preset(tracker, path: str | Path) -> LoadedPreset:
         "fov_y": _number(camera, "fov_y_deg", 0.1, 180),
         "atmosphere": _enum(disturbances, "atmospheric_condition", AtmosphericCondition),
         "severity": _number(disturbances, "atmospheric_severity", 0, 1),
+        "turbulence_warp": _number(disturbances, "turbulence_warp_px", 0, 50),
+        "turbulence_blur": _number(disturbances, "turbulence_blur_sigma_px", 0, 20),
+        "scintillation": _number(disturbances, "scintillation_log_std", 0, 1.5),
+        "illumination_flicker": _number(disturbances, "illumination_flicker_fraction", 0, .95),
+        "illumination_hz": _number(disturbances, "illumination_flicker_hz", 0, 100),
         "salt_pepper": _boolean(disturbances, "enable_salt_pepper"),
         "salt_pepper_ratio": _number(disturbances, "salt_pepper_ratio", 0, 0.15),
         "gaussian": _boolean(disturbances, "enable_gaussian_noise"),
@@ -97,6 +103,12 @@ def load_and_apply_preset(tracker, path: str | Path) -> LoadedPreset:
         "platform_type": _enum(disturbances, "platform_motion_type", PlatformMotionType),
         "platform_px": _number(disturbances, "platform_motion_amplitude_px", 0, 20),
         "platform_hz": _number(disturbances, "platform_motion_frequency_hz", 0, 100),
+        "dropout_enabled": _boolean(dropout, "enabled"),
+        "dropout_start": _number(dropout, "start_s", 0, 86400),
+        "dropout_duration": _number(dropout, "duration_s", 0, 86400),
+        "dropout_burst": _boolean(dropout, "burst_enabled"),
+        "dropout_mean_clear": _number(dropout, "mean_clear_s", 0.001, 86400),
+        "dropout_mean_loss": _number(dropout, "mean_loss_s", 0.001, 86400),
     }
 
     primary = tracker.primary_target
@@ -114,6 +126,11 @@ def load_and_apply_preset(tracker, path: str | Path) -> LoadedPreset:
     disturbance_map = {
         "atmosphere": "atmospheric_condition",
         "severity": "atmospheric_severity",
+        "turbulence_warp": "turbulence_warp_px",
+        "turbulence_blur": "turbulence_blur_sigma_px",
+        "scintillation": "scintillation_log_std",
+        "illumination_flicker": "illumination_flicker_fraction",
+        "illumination_hz": "illumination_flicker_hz",
         "salt_pepper": "enable_salt_pepper",
         "salt_pepper_ratio": "salt_pepper_ratio",
         "gaussian": "enable_gaussian_noise",
@@ -125,6 +142,12 @@ def load_and_apply_preset(tracker, path: str | Path) -> LoadedPreset:
         "platform_type": "platform_motion_type",
         "platform_px": "platform_motion_amplitude_px",
         "platform_hz": "platform_motion_frequency_hz",
+        "dropout_enabled": "dropout_enabled",
+        "dropout_start": "dropout_start_s",
+        "dropout_duration": "dropout_duration_s",
+        "dropout_burst": "dropout_burst_enabled",
+        "dropout_mean_clear": "dropout_mean_clear_s",
+        "dropout_mean_loss": "dropout_mean_loss_s",
     }
     for key, attr in disturbance_map.items():
         if values[key] is not None:
