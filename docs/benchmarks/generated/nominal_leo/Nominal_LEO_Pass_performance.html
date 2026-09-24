@@ -1,0 +1,65 @@
+<!doctype html><meta charset='utf-8'><title>Archis Performance Report</title><style>body{font:15px system-ui;background:#071018;color:#e7eef5;max-width:960px;margin:40px auto}table{width:100%;border-collapse:collapse}th,td{padding:9px;border-bottom:1px solid #294052;text-align:left}th{color:#83d9ce;width:45%}pre{background:#0c1924;border:1px solid #294052;padding:16px;overflow:auto}h2{margin-top:32px}</style><h1>Archis FSOC Performance Report</h1><p>Version <strong>2.0.0</strong> · generated 2026-09-23T17:27:15.208967+00:00</p><p style='color:#62d3a4;font-size:20px;font-weight:700'>PASS</p><p>Accuracy basis: <strong>ground_truth</strong></p><h2>Measured summary</h2><table><tr><th>scenario</th><td>Nominal LEO Pass</td></tr><tr><th>frames</th><td>1800</td></tr><tr><th>duration_s</th><td>59.96666666666582</td></tr><tr><th>acquisition_time_s</th><td>0.1</td></tr><tr><th>centroid_rmse_px</th><td>0.02746707880653709</td></tr><tr><th>centroid_mean_px</th><td>0.02161271375093752</td></tr><tr><th>centroid_max_px</th><td>0.3393648656253903</td></tr><tr><th>centroid_p95_px</th><td>0.0354603722404356</td></tr><tr><th>pointing_rmse_px</th><td>2.8834383230007807</td></tr><tr><th>lock_retention_pct</th><td>100.0</td></tr><tr><th>target_loss_pct</th><td>0.0</td></tr><tr><th>average_processing_ms</th><td>4.820076545020129</td></tr><tr><th>maximum_processing_ms</th><td>23.309548998440732</td></tr><tr><th>processing_fps</th><td>207.4655849673491</td></tr><tr><th>reacquisition_count</th><td>0</td></tr><tr><th>average_reacquisition_s</th><td>None</td></tr><tr><th>maximum_reacquisition_s</th><td>None</td></tr><tr><th>accuracy_basis</th><td>ground_truth</td></tr><tr><th>run_fingerprint</th><td>7d3018d5d4a3057752ad89905977eeea4d595aaf56d5bb4f5a66690f36de526e</td></tr><tr><th>acquisition_passed</th><td>True</td></tr><tr><th>centroid_passed</th><td>True</td></tr><tr><th>pointing_passed</th><td>True</td></tr><tr><th>loss_passed</th><td>True</td></tr><tr><th>reacquisition_passed</th><td>True</td></tr><tr><th>fps_passed</th><td>True</td></tr><tr><th>passed</th><td>True</td></tr></table><h2>Configured thresholds</h2><table><tr><th>max_acquisition_time_s</th><td>2.0</td></tr><tr><th>max_tracking_error_px</th><td>10.0</td></tr><tr><th>max_target_loss_pct</th><td>5.0</td></tr><tr><th>max_reacquisition_time_s</th><td>1.0</td></tr><tr><th>min_processing_fps</th><td>20.0</td></tr></table><h2>AI model provenance</h2><table><tr><th>name</th><td>NanoSpot-Net</td></tr><tr><th>status</th><td>synthetic-trained CNN / CPU</td></tr><tr><th>sha256</th><td>4b64a517305433410fc3750773f3e7d13bc3251b21cb2c52b0ea37f785738659</td></tr><tr><th>loaded</th><td>True</td></tr><tr><th>model_type</th><td>synthetic-trained CNN</td></tr><tr><th>training_seed</th><td>20260912</td></tr><tr><th>calibration_threshold</th><td>0.88</td></tr><tr><th>held_out_false_lock_rate</th><td>0.0</td></tr><tr><th>calibration_target_met</th><td>True</td></tr></table><h2>Scenario configuration</h2><pre>{
+  &quot;schema_version&quot;: 2,
+  &quot;name&quot;: &quot;Nominal LEO Pass&quot;,
+  &quot;description&quot;: &quot;Standard low-earth orbit beacon tracking under nominal space-to-ground clear atmospheric conditions.&quot;,
+  &quot;camera&quot;: {
+    &quot;viewport_px&quot;: [
+      640,
+      480
+    ],
+    &quot;fov_deg&quot;: [
+      4.0,
+      3.0
+    ],
+    &quot;update_hz&quot;: 30.0,
+    &quot;max_rate_deg_s&quot;: [
+      5.0,
+      5.0
+    ],
+    &quot;max_acceleration_deg_s2&quot;: 25.0
+  },
+  &quot;world&quot;: {
+    &quot;size_px&quot;: [
+      2000,
+      2000
+    ],
+    &quot;star_count&quot;: 250
+  },
+  &quot;target&quot;: {
+    &quot;shape&quot;: &quot;Square&quot;,
+    &quot;size_px&quot;: [
+      10,
+      10
+    ],
+    &quot;trajectory&quot;: &quot;Figure of 8&quot;,
+    &quot;speed_px_s&quot;: 45.0,
+    &quot;intensity&quot;: 255.0,
+    &quot;initial_location&quot;: &quot;center&quot;
+  },
+  &quot;disturbances&quot;: {
+    &quot;atmosphere&quot;: &quot;Clear&quot;,
+    &quot;atmosphere_strength&quot;: 0.0,
+    &quot;gaussian_noise_std&quot;: 0.0,
+    &quot;salt_pepper_fraction&quot;: 0.0,
+    &quot;camera_jitter_max_px&quot;: 3.0,
+    &quot;platform_motion&quot;: &quot;None&quot;,
+    &quot;platform_motion_max_px&quot;: 0.0,
+    &quot;dropout&quot;: {
+      &quot;enabled&quot;: false,
+      &quot;start_s&quot;: 0.0,
+      &quot;duration_s&quot;: 0.0
+    }
+  },
+  &quot;detector&quot;: {
+    &quot;algorithm&quot;: &quot;HYBRID&quot;,
+    &quot;code_lock&quot;: null
+  },
+  &quot;controller&quot;: {
+    &quot;coast_timeout_s&quot;: 0.4,
+    &quot;local_reacquire_timeout_s&quot;: 0.6
+  },
+  &quot;evaluation&quot;: {
+    &quot;duration_s&quot;: 60.0,
+    &quot;random_seed&quot;: 26169
+  }
+}</pre>
