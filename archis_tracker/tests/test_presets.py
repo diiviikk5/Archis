@@ -17,6 +17,10 @@ def test_bundled_preset_applies_to_live_subsystems():
     assert tracker.primary_target.size == 14
     assert tracker.disturbances.config.atmospheric_condition == AtmosphericCondition.FOG
     assert tracker.disturbances.config.enable_gaussian_noise
+    assert tracker.disturbances.config.turbulence_warp_px == 3.5
+    assert tracker.disturbances.config.turbulence_blur_sigma_px == 0.8
+    assert tracker.disturbances.config.scintillation_log_std == 0.12
+    assert tracker.disturbances.config.illumination_flicker_fraction == 0.08
     assert tracker.camera.gimbal.max_rate == 6.0
     assert tracker.camera.gimbal.max_tilt_rate == 6.0
     assert tracker.sim_time == 0.0

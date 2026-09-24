@@ -26,6 +26,10 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--truth", help="CSV or JSON centroid ground-truth sidecar")
     analyze.add_argument("--interpolate-truth", action="store_true")
     analyze.add_argument("--fps", type=float, default=30.0)
+    analyze.add_argument(
+        "--fov-deg", type=float, nargs=2, metavar=("HORIZONTAL", "VERTICAL"),
+        help="camera FOV used to report optional angular errors in microradians",
+    )
     analyze.add_argument("--max-frames", type=int, default=0)
     analyze.add_argument("--output-dir", default="reports/analysis")
     train = commands.add_parser("train-ai")
@@ -81,7 +85,9 @@ def _run_scenario(scenario, frames: int):
     width, height = (int(value) for value in scenario.data["camera"]["viewport_px"])
     fps = float(scenario.data["camera"]["update_hz"])
     recorder = PerformanceRecorder(
-        scenario.name, (width, height), configuration=dict(scenario.data),
+        scenario.name, (width, height),
+        fov_deg=tuple(float(value) for value in scenario.data["camera"]["fov_deg"]),
+        configuration=dict(scenario.data),
         model_metadata=_model_metadata(tracker),
     )
     for _ in range(frames):
@@ -143,6 +149,9 @@ def _analyze(args) -> int:
     from .core.sources import FrameSourceError, open_frame_source
     from .core.tracker import TrackingSystem
     from .core.truth import TruthSidecar, TruthSidecarError
+    if args.fov_deg and not all(0.0 < value < 180.0 for value in args.fov_deg):
+        print("Input error: both FOV values must be between 0 and 180 degrees", file=sys.stderr)
+        return 2
     try:
         source = open_frame_source(args.input, args.fps)
         truth = TruthSidecar.load(args.truth) if args.truth else None
@@ -161,7 +170,14 @@ def _analyze(args) -> int:
                 height, width = frame.image.shape[:2]
                 recorder = PerformanceRecorder(
                     Path(args.input).stem, (width, height),
-                    configuration={"input": str(args.input)},
+                    fov_deg=tuple(args.fov_deg) if args.fov_deg else None,
+                    configuration={
+                        "input": str(args.input),
+                        "camera": {
+                            "native_resolution_px": [width, height],
+                            "fov_deg": list(args.fov_deg) if args.fov_deg else None,
+                        },
+                    },
                     model_metadata=_model_metadata(tracker),
                 )
             recorder.record(result, sample, getattr(source, "fps", args.fps))
@@ -193,6 +209,7 @@ def _compare(scenario, args) -> int:
         width, height = (int(value) for value in variant.data["camera"]["viewport_px"])
         recorders[algorithm] = PerformanceRecorder(
             f"{scenario.name} - {algorithm}", (width, height),
+            fov_deg=tuple(float(value) for value in variant.data["camera"]["fov_deg"]),
             configuration={**dict(variant.data), "comparison_input": "shared_hybrid_closed_loop_frames"},
             model_metadata=_model_metadata(variants[algorithm]),
         )

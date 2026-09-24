@@ -14,6 +14,11 @@
   "disturbances": {
     "atmospheric_condition": "Fog",
     "atmospheric_severity": 0.65,
+    "turbulence_warp_px": 3.5,
+    "turbulence_blur_sigma_px": 0.8,
+    "scintillation_log_std": 0.12,
+    "illumination_flicker_fraction": 0.08,
+    "illumination_flicker_hz": 3.0,
     "enable_salt_pepper": true,
     "salt_pepper_ratio": 0.04,
     "enable_gaussian_noise": true,

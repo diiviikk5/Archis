@@ -14,6 +14,10 @@ class DisturbanceEngine:
         self.config = config or DisturbanceConfig()
         self.time_elapsed: float = 0.0
         self.rng = np.random.default_rng(self.config.random_seed)
+        self._coordinate_grids: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
+        self._turbulence_bases: dict[tuple[int, int], tuple[np.ndarray, ...]] = {}
+        phase_rng = np.random.default_rng(self.config.random_seed ^ 0x54555242)
+        self._turbulence_phase = phase_rng.uniform(0.0, 2.0 * np.pi, 4)
         
         self._initialize_rain()
 
@@ -29,7 +33,39 @@ class DisturbanceEngine:
     def reset(self) -> None:
         self.time_elapsed = 0.0
         self.rng = np.random.default_rng(self.config.random_seed)
+        self._coordinate_grids.clear()
+        self._turbulence_bases.clear()
+        phase_rng = np.random.default_rng(self.config.random_seed ^ 0x54555242)
+        self._turbulence_phase = phase_rng.uniform(0.0, 2.0 * np.pi, 4)
         self._initialize_rain()
+
+    def _grid(self, height: int, width: int) -> tuple[np.ndarray, np.ndarray]:
+        """Return cached float32 remap coordinates for a frame size."""
+        shape = (height, width)
+        if shape not in self._coordinate_grids:
+            grid_y, grid_x = np.indices(shape, dtype=np.float32)
+            self._coordinate_grids[shape] = grid_x, grid_y
+        return self._coordinate_grids[shape]
+
+    def _turbulence_basis(self, height: int, width: int) -> tuple[np.ndarray, ...]:
+        """Cache spatial phase terms; each frame then needs only scalar trig."""
+        shape = (height, width)
+        if shape not in self._turbulence_bases:
+            grid_x, grid_y = self._grid(height, width)
+            cell = max(8.0, min(height, width) / 18.0)
+            phase = self._turbulence_phase
+            angles = (
+                grid_y / cell + phase[0],
+                (grid_x + grid_y) / (1.7 * cell) + phase[1],
+                grid_x / cell + phase[2],
+                (grid_x - grid_y) / (1.9 * cell) + phase[3],
+            )
+            self._turbulence_bases[shape] = tuple(
+                item.astype(np.float32, copy=False)
+                for angle in angles
+                for item in (np.sin(angle), np.cos(angle))
+            )
+        return self._turbulence_bases[shape]
 
     def update(self, dt: float) -> Tuple[Tuple[float, float], Tuple[float, float]]:
         """
@@ -95,6 +131,15 @@ class DisturbanceEngine:
         """
         img = frame.copy().astype(np.float32)
         h, w = img.shape
+
+        # Illumination flicker is applied before atmospheric propagation.  It
+        # is deterministic for a fixed time step and does not consume RNG.
+        flicker_depth = float(np.clip(self.config.illumination_flicker_fraction, 0.0, 0.95))
+        if flicker_depth > 0.0:
+            flicker = 1.0 + flicker_depth * np.sin(
+                2.0 * np.pi * max(0.0, self.config.illumination_flicker_hz) * self.time_elapsed
+            )
+            img *= max(0.05, flicker)
         
         # 1. Atmospheric Disturbance
         atm = self.config.atmospheric_condition
@@ -129,6 +174,40 @@ class DisturbanceEngine:
             # Heavy reduction in brightness and SNR
             factor = max(0.15, 1.0 - 0.75 * sev)
             img = img * factor
+
+        # Atmospheric turbulence: deterministic moving phase screens for
+        # angle-of-arrival distortion, optional seeing blur, and a log-normal
+        # scintillation multiplier whose mean is one.  Keeping these controls
+        # independent makes ablation and stress-envelope runs meaningful.
+        warp_px = max(0.0, float(self.config.turbulence_warp_px))
+        if warp_px > 0.0:
+            grid_x, grid_y = self._grid(h, w)
+            t = self.time_elapsed
+            sin_a, cos_a, sin_b, cos_b, sin_c, cos_c, sin_d, cos_d = self._turbulence_basis(h, w)
+            dx = warp_px * (
+                0.65 * (sin_a * np.cos(4.1 * t) + cos_a * np.sin(4.1 * t))
+                + 0.35 * (sin_b * np.cos(2.3 * t) - cos_b * np.sin(2.3 * t))
+            )
+            dy = warp_px * (
+                0.65 * (cos_c * np.cos(3.7 * t) - sin_c * np.sin(3.7 * t))
+                + 0.35 * (cos_d * np.cos(2.9 * t) - sin_d * np.sin(2.9 * t))
+            )
+            map_x = (grid_x + dx).astype(np.float32, copy=False)
+            map_y = (grid_y + dy).astype(np.float32, copy=False)
+            img = cv2.remap(
+                img, map_x, map_y,
+                cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT101,
+            )
+
+        blur_sigma = max(0.0, float(self.config.turbulence_blur_sigma_px))
+        if blur_sigma > 0.0:
+            img = cv2.GaussianBlur(img, (0, 0), sigmaX=blur_sigma, sigmaY=blur_sigma)
+
+        scintillation = float(np.clip(self.config.scintillation_log_std, 0.0, 1.5))
+        if scintillation > 0.0:
+            # exp(N(-sigma^2/2, sigma)) is log-normal with E[gain] = 1.
+            gain = np.exp(self.rng.normal(-0.5 * scintillation**2, scintillation))
+            img *= float(gain)
 
         # 2. Salt & Pepper Noise (around 10% of image, user selectable)
         if self.config.enable_salt_pepper:

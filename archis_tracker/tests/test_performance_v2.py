@@ -12,7 +12,7 @@ from archis_tracker.core.tracker import TrackingSystem
 
 def test_performance_report_uses_truth_and_exports_three_formats(tmp_path):
     tracker = TrackingSystem(det_config=DetectorConfig(algorithm=TrackingAlgorithm.IWC))
-    recorder = PerformanceRecorder("truth run", (640, 480))
+    recorder = PerformanceRecorder("truth run", (640, 480), fov_deg=(4.0, 3.0))
     yy, xx = np.ogrid[:480, :640]
     image = (220 * np.exp(-((xx-320)**2 + (yy-240)**2)/(2*3**2))).astype(np.uint8)
     for _ in range(8):
@@ -21,11 +21,14 @@ def test_performance_report_uses_truth_and_exports_three_formats(tmp_path):
     summary = recorder.summary()
     assert summary.accuracy_basis == "ground_truth"
     assert summary.centroid_rmse_px is not None and summary.centroid_rmse_px < 1
+    assert summary.centroid_rmse_urad is not None and summary.centroid_rmse_urad < 200
+    assert summary.pointing_rmse_urad == 0
     paths = recorder.export(tmp_path)
     assert set(paths) == {"csv", "json", "html"}
     payload = json.loads(paths["json"].read_text(encoding="utf-8"))
     assert payload["schema_version"] == 2
     assert payload["summary"]["accuracy_basis"] == "ground_truth"
+    assert "centroid_error_urad" in payload["frames"][0]
     rendered = paths["html"].read_text(encoding="utf-8")
     assert "Configured thresholds" in rendered
     assert "AI model provenance" in rendered
@@ -67,7 +70,10 @@ def test_expected_dropout_requires_a_measured_reacquisition():
     for _ in range(12):
         tracker.step_external_frame(image, 1/30, GroundTruthSample(320, 240))
         recorder.record(tracker.last_result, tracker.last_truth, 30)
-    assert recorder.summary().reacquisition_passed is False
+    summary = recorder.summary()
+    assert summary.reacquisition_passed is False
+    assert summary.centroid_rmse_urad is None
+    assert summary.pointing_rmse_urad is None
 
 
 def test_identical_seed_runs_have_identical_report_fingerprint():

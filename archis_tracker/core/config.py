@@ -139,6 +139,18 @@ class DisturbanceConfig:
     
     atmospheric_condition: AtmosphericCondition = AtmosphericCondition.CLEAR
     atmospheric_severity: float = 0.5  # 0.0 to 1.0 (contrast/brightness reduction)
+
+    # Turbulence is modelled separately from bulk haze/fog attenuation.  The
+    # warp represents angle-of-arrival fluctuations, the blur represents
+    # seeing, and the log-normal term represents irradiance scintillation.
+    turbulence_warp_px: float = 0.0
+    turbulence_blur_sigma_px: float = 0.0
+    scintillation_log_std: float = 0.0
+
+    # Periodic source/background illumination variation.  A value of 0.15
+    # varies the image gain by +/-15 percent around unity.
+    illumination_flicker_fraction: float = 0.0
+    illumination_flicker_hz: float = 3.0
     
     enable_platform_motion: bool = False
     platform_motion_type: PlatformMotionType = PlatformMotionType.LINEAR
