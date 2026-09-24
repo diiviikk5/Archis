@@ -11,7 +11,8 @@ from .camera import VirtualCamera
 from .codelock import CodeLock
 from .config import (
     AGCMode, CameraConfig, ControllerConfig, DetectorConfig, DisturbanceConfig,
-    EnvironmentConfig, TargetConfig, TrackingAlgorithm, TrackingState,
+    EnvironmentConfig, TargetConfig, TerminalWorldConfig, TrackingAlgorithm,
+    TrackingState,
 )
 from .contracts import (
     CameraCommand, CanonicalTrackingState, Detection, FramePacket,
@@ -26,6 +27,7 @@ from .presets import LoadedPreset, load_and_apply_preset
 from .state_machine import StateMachineConfig, TrackingStateMachine
 from .target import TargetBeacon, TargetManager
 from .telemetry import TelemetryEngine
+from .world_model import TwoTerminalWorldModel, WorldGeometrySnapshot
 
 
 _LEGACY_STATE = {
@@ -48,6 +50,7 @@ class TrackingSystem:
         disturb_config: Optional[DisturbanceConfig] = None,
         ctrl_config: Optional[ControllerConfig] = None,
         det_config: Optional[DetectorConfig] = None,
+        terminal_world_config: Optional[TerminalWorldConfig] = None,
     ) -> None:
         self.cam_config = cam_config or CameraConfig()
         self.env_config = env_config or EnvironmentConfig()
@@ -55,6 +58,7 @@ class TrackingSystem:
         self.disturb_config = disturb_config or DisturbanceConfig()
         self.ctrl_config = ctrl_config or ControllerConfig()
         self.det_config = det_config or DetectorConfig()
+        self.terminal_world_config = terminal_world_config or TerminalWorldConfig()
 
         self.environment = VirtualEnvironment(self.env_config)
         self.camera = VirtualCamera(self.cam_config, self.env_config)
@@ -64,6 +68,9 @@ class TrackingSystem:
         self.controller = GimbalController(self.ctrl_config, self.cam_config)
         self.telemetry = TelemetryEngine()
         self.target_manager = TargetManager(self.target_config)
+        self.world_model = TwoTerminalWorldModel(
+            self.cam_config, self.env_config, self.terminal_world_config
+        )
         self.state_machine = TrackingStateMachine(
             StateMachineConfig(
                 confirmation_frames=self.ctrl_config.acquisition_confirmation_frames,
@@ -91,6 +98,9 @@ class TrackingSystem:
         self._ever_acquired = False
         self._base_target_intensity = float(self.target_config.intensity)
         self._external_shape: tuple[int, int] | None = None
+        self.world_snapshot: WorldGeometrySnapshot = self.world_model.reset(
+            self.camera, self.primary_target, self.secondary_targets
+        )
 
     @property
     def canonical_state(self) -> CanonicalTrackingState:
@@ -143,13 +153,19 @@ class TrackingSystem:
         self.sensor_obscured = False
         self._ever_acquired = False
         self._external_shape = None
+        self.world_snapshot = self.world_model.reset(
+            self.camera, self.primary_target, self.secondary_targets
+        )
 
     def spawn_decoy(self, world_x: float, world_y: float, **kwargs) -> TargetBeacon:
         kwargs.setdefault("random_seed", self.target_config.random_seed)
-        return self.target_manager.add_decoy(world_x, world_y, **kwargs)
+        decoy = self.target_manager.add_decoy(world_x, world_y, **kwargs)
+        self._refresh_world_snapshot()
+        return decoy
 
     def clear_decoys(self) -> None:
         self.target_manager.clear_decoys()
+        self._refresh_world_snapshot()
 
     def designate_target_at(self, world_x: float, world_y: float) -> None:
         target = self.target_manager.designate_nearest(world_x, world_y)
@@ -159,10 +175,12 @@ class TrackingSystem:
             self.detector.target_template = None
             self.state_machine.reset()
             self.state = TrackingState.ACQUIRING
+            self._refresh_world_snapshot()
 
     def move_primary_to(self, world_x: float, world_y: float) -> None:
         self.primary_target.x = self.primary_target.center_x = world_x
         self.primary_target.y = self.primary_target.center_y = world_y
+        self._refresh_world_snapshot()
 
     def set_algorithm(self, algo: TrackingAlgorithm) -> None:
         self.detector.config.algorithm = algo
@@ -195,6 +213,9 @@ class TrackingSystem:
         self.camera.jitter_offset_x, self.camera.jitter_offset_y = jitter_x, jitter_y
         self.camera.platform_offset_x, self.camera.platform_offset_y = platform_x, platform_y
         self.camera.update_world_position()
+        self.world_snapshot = self.world_model.update(
+            dt, self.camera, self.primary_target, self.secondary_targets
+        )
 
         canvas = self.environment.render_viewport_patch(
             self.camera.world_x, self.camera.world_y, self.camera.width, self.camera.height
@@ -217,6 +238,12 @@ class TrackingSystem:
         detection, result = self._track_packet(packet, dt, apply_camera=True, truth=self.last_truth, started=started)
         self.last_result = result
         return detection
+
+    def _refresh_world_snapshot(self) -> None:
+        """Refresh UI geometry after an instantaneous designation/edit."""
+        self.world_snapshot = self.world_model.update(
+            0.0, self.camera, self.primary_target, self.secondary_targets
+        )
 
     def step_external_frame(
         self, frame: np.ndarray, dt: float, truth: GroundTruthSample | None = None
@@ -337,6 +364,9 @@ class TrackingSystem:
         )
         if apply_camera and self.is_autonomous_tracking and command is not None:
             self.camera.apply_pan_tilt_command(command.pan_rate_deg_s, command.tilt_rate_deg_s, dt)
+            # The rendered frame used the pre-command pose; the UI snapshot
+            # represents the newly commanded gimbal pose for the next frame.
+            self._refresh_world_snapshot()
 
         selected = self._contract_detection(detection) if detection.detected else None
         estimate = self._estimate(canonical, detection, pred_x, pred_y)
@@ -371,6 +401,16 @@ class TrackingSystem:
             "innovation_gate_enabled": filter_gate,
             "latency_compensation_s": self.ctrl_config.latency_compensation_s,
         }
+        if apply_camera:
+            diagnostics.update({
+                "terminal_range_m": self.world_snapshot.separation_m,
+                "los_azimuth_deg": self.world_snapshot.line_of_sight_azimuth_deg,
+                "los_elevation_deg": self.world_snapshot.line_of_sight_elevation_deg,
+                "relative_azimuth_deg": self.world_snapshot.relative_azimuth_deg,
+                "relative_elevation_deg": self.world_snapshot.relative_elevation_deg,
+                "terminal_in_fov": self.world_snapshot.transmitter_in_fov,
+                "decoy_terminal_count": len(self.world_snapshot.decoys),
+            })
         result = TrackingResult(packet, canonical, candidates, selected, estimate, command, elapsed_ms, diagnostics)
         self.last_detection = detection
         return detection, result

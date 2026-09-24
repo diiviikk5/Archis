@@ -226,10 +226,13 @@ class TargetManager:
     def add_decoy(self, x: float, y: float, shape: TargetShape = TargetShape.GAUSSIAN,
                   size: int = 10, speed: float = 35.0,
                   trajectory: MotionTrajectory = MotionTrajectory.STRAIGHT_LINE,
-                  intensity: float = 220.0, random_seed: int = 26169) -> TargetBeacon:
+                  intensity: float = 220.0, random_seed: int = 26169,
+                  range_m: Optional[float] = None,
+                  orientation_deg: Optional[Tuple[float, float, float]] = None) -> TargetBeacon:
         cfg = TargetConfig(
             shape=shape, size=size, speed=speed, trajectory=trajectory,
             intensity=intensity, initial_x=x, initial_y=y, random_seed=random_seed,
+            range_m=range_m, orientation_deg=orientation_deg,
         )
         decoy = TargetBeacon(target_id=self._next_id, config=cfg, is_primary=False)
         self._next_id += 1

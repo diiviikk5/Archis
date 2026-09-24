@@ -10,7 +10,7 @@ from typing import Any, Mapping
 from .config import (
     AtmosphericCondition, CameraConfig, ControllerConfig, DetectorConfig,
     DisturbanceConfig, EnvironmentConfig, MotionTrajectory, PlatformMotionType,
-    TargetConfig, TargetShape, TrackingAlgorithm,
+    TargetConfig, TargetShape, TerminalWorldConfig, TrackingAlgorithm,
 )
 
 
@@ -26,7 +26,13 @@ DEFAULT_SCENARIO: dict[str, Any] = {
         "viewport_px": [640, 480], "fov_deg": [4.0, 3.0], "update_hz": 30.0,
         "max_rate_deg_s": [5.0, 5.0], "max_acceleration_deg_s2": 25.0,
     },
-    "world": {"size_px": [2000, 2000], "star_count": 250},
+    "world": {
+        "size_px": [2000, 2000], "star_count": 250,
+        "nominal_range_m": 1000.0,
+        "receiver_position_m": [0.0, 0.0, 0.0],
+        "receiver_velocity_m_s": [0.0, 0.0, 0.0],
+        "receiver_orientation_deg": [0.0, 0.0, 0.0],
+    },
     "target": {
         "shape": "Square", "size_px": [10, 10], "trajectory": "Figure of 8",
         "speed_px_s": 45.0, "intensity": 255.0, "initial_location": "center",
@@ -114,6 +120,10 @@ def validate_scenario(raw: Any) -> dict[str, Any]:
     _number(camera.get("update_hz"), "camera.update_hz", 1, 240)
     world_size = _pair(world.get("size_px"), "world.size_px", 640, 100000)
     _integer(world.get("star_count", 250), "world.star_count", 0, 1_000_000)
+    _number(world.get("nominal_range_m", 1000.0), "world.nominal_range_m", 1, 100_000_000)
+    _triple(world.get("receiver_position_m", [0, 0, 0]), "world.receiver_position_m", -100_000_000, 100_000_000)
+    _triple(world.get("receiver_velocity_m_s", [0, 0, 0]), "world.receiver_velocity_m_s", -100_000, 100_000)
+    _triple(world.get("receiver_orientation_deg", [0, 0, 0]), "world.receiver_orientation_deg", -360, 360)
     _validate_target(target, "target")
     _validate_target_position(target, "target", world_size)
     extra_targets = data.get("targets", [])
@@ -237,6 +247,10 @@ def _validate_target(target: Mapping[str, Any], name: str) -> None:
     _pair(target.get("size_px"), f"{name}.size_px", 1, 100)
     _number(target.get("speed_px_s"), f"{name}.speed_px_s", 0, 5000)
     _number(target.get("intensity", 255), f"{name}.intensity", 1, 255)
+    if target.get("range_m") is not None:
+        _number(target["range_m"], f"{name}.range_m", 1, 100_000_000)
+    if target.get("orientation_deg") is not None:
+        _triple(target["orientation_deg"], f"{name}.orientation_deg", -360, 360)
     if "initial_position_px" in target:
         _pair(target["initial_position_px"], f"{name}.initial_position_px", 0, 100000)
     location = str(target.get("initial_location", "center")).lower()
@@ -262,6 +276,16 @@ def _pair(value: Any, name: str, low: float, high: float) -> tuple[float, float]
     return _number(value[0], f"{name}[0]", low, high), _number(value[1], f"{name}[1]", low, high)
 
 
+def _triple(value: Any, name: str, low: float, high: float) -> tuple[float, float, float]:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ScenarioError(f"{name} must contain three numbers")
+    return (
+        _number(value[0], f"{name}[0]", low, high),
+        _number(value[1], f"{name}[1]", low, high),
+        _number(value[2], f"{name}[2]", low, high),
+    )
+
+
 def tracker_from_scenario(scenario: Scenario):
     """Build a TrackingSystem from validated schema-v2 data."""
     from .tracker import TrackingSystem
@@ -285,12 +309,23 @@ def tracker_from_scenario(scenario: Scenario):
         screen_width=int(world["size_px"][0]), screen_height=int(world["size_px"][1]),
         star_count=int(world.get("star_count", 250)), random_seed=scenario.seed,
     )
+    terminal_world_config = TerminalWorldConfig(
+        nominal_range_m=float(world.get("nominal_range_m", 1000.0)),
+        receiver_position_m=tuple(float(value) for value in world.get("receiver_position_m", [0, 0, 0])),
+        receiver_velocity_m_s=tuple(float(value) for value in world.get("receiver_velocity_m_s", [0, 0, 0])),
+        receiver_orientation_deg=tuple(float(value) for value in world.get("receiver_orientation_deg", [0, 0, 0])),
+    )
     initial_x, initial_y = _target_position(target, world, camera)
     target_config = TargetConfig(
         shape=TargetShape(target["shape"]), size=round((target_width + target_height) / 2),
         trajectory=MotionTrajectory(target["trajectory"]), speed=float(target["speed_px_s"]),
         intensity=float(target.get("intensity", 255.0)), random_seed=scenario.seed,
         initial_x=initial_x, initial_y=initial_y,
+        range_m=float(target["range_m"]) if target.get("range_m") is not None else None,
+        orientation_deg=(
+            tuple(float(value) for value in target["orientation_deg"])
+            if target.get("orientation_deg") is not None else None
+        ),
     )
     atmosphere = AtmosphericCondition(disturbance.get("atmosphere", "Clear"))
     platform = PlatformMotionType(disturbance.get("platform_motion", "None"))
@@ -333,7 +368,10 @@ def tracker_from_scenario(scenario: Scenario):
         code_lock_minimum_correlation=float(code_lock.get("minimum_correlation", 0.70)),
         kalman_gate_threshold_chi2=float(detector.get("innovation_gate_chi2", 10000.0)),
     )
-    tracker = TrackingSystem(cam_config, env_config, target_config, disturb_config, ctrl_config, det_config)
+    tracker = TrackingSystem(
+        cam_config, env_config, target_config, disturb_config, ctrl_config, det_config,
+        terminal_world_config,
+    )
     for decoy_data in configured_targets[1:]:
         decoy_x, decoy_y = _target_position(decoy_data, world, camera)
         decoy_width, decoy_height = (int(value) for value in decoy_data["size_px"])
@@ -345,6 +383,14 @@ def tracker_from_scenario(scenario: Scenario):
             trajectory=MotionTrajectory(decoy_data["trajectory"]),
             intensity=float(decoy_data.get("intensity", 220.0)),
             random_seed=scenario.seed,
+            range_m=(
+                float(decoy_data["range_m"])
+                if decoy_data.get("range_m") is not None else None
+            ),
+            orientation_deg=(
+                tuple(float(value) for value in decoy_data["orientation_deg"])
+                if decoy_data.get("orientation_deg") is not None else None
+            ),
         )
     return tracker
 

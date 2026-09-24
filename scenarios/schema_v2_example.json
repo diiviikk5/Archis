@@ -9,14 +9,23 @@
     "max_rate_deg_s": [5.0, 5.0],
     "max_acceleration_deg_s2": 25.0
   },
-  "world": {"size_px": [2000, 2000], "star_count": 250},
+  "world": {
+    "size_px": [2000, 2000],
+    "star_count": 250,
+    "nominal_range_m": 1000.0,
+    "receiver_position_m": [0.0, 0.0, 0.0],
+    "receiver_velocity_m_s": [0.0, 0.0, 0.0],
+    "receiver_orientation_deg": [0.0, 0.0, 0.0]
+  },
   "target": {
     "shape": "Gaussian Spot",
     "size_px": [12, 12],
     "trajectory": "Figure of 8",
     "speed_px_s": 45.0,
     "intensity": 255.0,
-    "initial_location": "center"
+    "initial_location": "center",
+    "range_m": 1200.0,
+    "orientation_deg": [180.0, 0.0, 0.0]
   },
   "disturbances": {
     "atmosphere": "Haze",

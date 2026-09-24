@@ -356,7 +356,12 @@ class MainWindow(FluentWindow):
             self.current_preset_path = path
             self.session_dir = self._start_session(self.session_dir.parent)
             self.control_panel.refresh_from_tracker()
-            self.minimap.set_references(self.tracker.primary_target, self.tracker.camera, self.tracker.secondary_targets)
+            self.minimap.set_references(
+                self.tracker.primary_target,
+                self.tracker.camera,
+                self.tracker.secondary_targets,
+                self.tracker.world_model,
+            )
             self.show_success_toast("Mission Preset Loaded", f"Configured scenario: {preset.name}")
         except PresetError as exc:
             self.show_warning_toast("Preset Error", str(exc))

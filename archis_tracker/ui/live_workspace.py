@@ -167,7 +167,12 @@ class TrackingInterface(QWidget):
         scroll.setWidget(details)
         self.inspector.addTab(scroll, "Inspector")
         self.minimap = MinimapWidget()
-        self.minimap.set_references(window.tracker.primary_target, window.tracker.camera, window.tracker.secondary_targets)
+        self.minimap.set_references(
+            window.tracker.primary_target,
+            window.tracker.camera,
+            window.tracker.secondary_targets,
+            window.tracker.world_model,
+        )
         self.minimap.designate_world_signal.connect(window._on_minimap_designated)
         self.minimap.spawn_decoy_world_signal.connect(window._on_minimap_spawn_decoy)
         self.inspector.addTab(self.minimap, "World")

@@ -106,6 +106,22 @@ class EnvironmentConfig:
 
 
 @dataclass
+class TerminalWorldConfig:
+    """Physical geometry layered over the legacy angular simulation plane.
+
+    The existing 2000x2000 world remains the deterministic angular scene used
+    to render camera pixels.  This configuration gives that plane a physical
+    range and an explicit receiving-terminal pose without changing legacy
+    presets or detector inputs.
+    """
+
+    nominal_range_m: float = 1000.0
+    receiver_position_m: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    receiver_velocity_m_s: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    receiver_orientation_deg: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+
+@dataclass
 class TargetConfig:
     # Target Parameters per specification
     shape: TargetShape = TargetShape.SQUARE
@@ -120,6 +136,11 @@ class TargetConfig:
     trajectory_radius: float = 350.0
     trajectory_omega: float = 0.25
     random_seed: int = 26169
+    # Physical terminal metadata.  Range defaults to the world's nominal
+    # range when omitted; orientation is yaw, pitch and roll in degrees.  A
+    # missing orientation makes the simulated transmitter face the receiver.
+    range_m: Optional[float] = None
+    orientation_deg: Optional[Tuple[float, float, float]] = None
 
 
 @dataclass
