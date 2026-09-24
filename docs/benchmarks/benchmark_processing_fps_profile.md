@@ -1,13 +1,17 @@
-# Real-Time Pipeline Processing FPS Profiling
+# Processing Throughput Profile
 
-## Executive Summary
-Profiling at 640x480 resolution, mean latency 3.6ms (277 FPS)
+<!-- generated-by: scripts/generate_benchmark_evidence.py engine-fingerprint: a709e0f7501437d006e000b7e253f0481b2972cd73cd741b08294bc2491bfeb3 -->
 
-## Results Matrix
-| Metric | Specification Target | Measured Value | Compliance |
-| :--- | :--- | :--- | :--- |
-| Acquisition Time | <= 2.0 s | 0.33 s | PASSED [PASS] |
-| Steady-State Tracking Error | <= 10.0 px | 0.58 px | PASSED [PASS] |
-| Target Loss Rate | < 5.0 % | 0.00 % | PASSED [PASS] |
-| Re-acquisition Time | <= 1.0 s | 0.00 s | PASSED [PASS] |
-| Processing Speed | >= 20 FPS | 204.2 FPS | PASSED [PASS] |
+These are wall-clock measurements, not deterministic algorithm outputs. They must be regenerated on the designated Windows 11 x64 reference machine before a release claim is made.
+
+| Scenario | Measured range | Runs meeting ≥20 FPS |
+| --- | ---: | ---: |
+| Nominal LEO Pass | 90.5–97.4 FPS | 3/3 |
+| High-Speed Evasive Target | 93.6–96.5 FPS | 3/3 |
+| Heavy Atmospheric Turbulence | 14.8–23.8 FPS | 2/3 |
+| Cloud Dropout and Re-acquisition | 78.7–82.1 FPS | 3/3 |
+| Platform Vibration | 84.7–95.6 FPS | 3/3 |
+
+Across all 15 runs: minimum **14.8 FPS**, median **90.5 FPS**, maximum **97.4 FPS**. Heavy-turbulence throughput near 20 FPS is therefore explicitly treated as host-dependent, not a universal pass.
+
+Host: `Intel(R) Core(TM) i5-1035G1 CPU @ 1.00GHz` · `Linux-7.2.5-3-omarchy-x86_64-with-glibc2.44` · Python `3.14.7` · NumPy `2.5.3` · OpenCV `5.0.0`.

@@ -165,7 +165,7 @@ class HomeInterface(QWidget):
         self.window._set_running(True)
 
     def _start_high_jitter(self):
-        self.window._load_preset("high_jitter.json")
+        self.window._load_preset("platform_jitter.json")
         self.window.switchTo(self.window.tracking_interface)
         self.window._set_running(True)
 
@@ -253,6 +253,7 @@ class ReviewInterface(QWidget):
         self.window = window
         self.setObjectName("reviewInterface")
         self._build_ui()
+        self.update_review()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -266,46 +267,111 @@ class ReviewInterface(QWidget):
         layout.addWidget(title)
         layout.addWidget(subtitle)
 
-        # Audit Document
+        # Keep the empty state distinct from a populated audit. A QTextBrowser
+        # left uninitialised looked like a large, broken blank panel.
+        self.review_stack = QStackedWidget()
+        self.empty_state = QFrame()
+        self.empty_state.setObjectName("reviewEmptyState")
+        empty_layout = QVBoxLayout(self.empty_state)
+        empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout.setSpacing(12)
+        empty_icon = IconWidget(FIF.DOCUMENT)
+        empty_icon.setFixedSize(48, 48)
+        empty_layout.addWidget(empty_icon, alignment=Qt.AlignmentFlag.AlignHCenter)
+        empty_title = TitleLabel("No session telemetry yet")
+        empty_layout.addWidget(empty_title, alignment=Qt.AlignmentFlag.AlignHCenter)
+        empty_hint = BodyLabel(
+            "Run a simulation or analyze a video, then return here to review the results."
+        )
+        empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_hint.setWordWrap(True)
+        empty_layout.addWidget(empty_hint, alignment=Qt.AlignmentFlag.AlignHCenter)
+        open_tracking = PrimaryPushButton(FIF.PLAY, "Open Live Tracking")
+        open_tracking.clicked.connect(
+            lambda: self.window.switchTo(self.window.tracking_interface)
+        )
+        empty_layout.addWidget(open_tracking, alignment=Qt.AlignmentFlag.AlignHCenter)
+        self.review_stack.addWidget(self.empty_state)
+
         self.review_text = QTextBrowser()
         self.review_text.setObjectName("reviewDocument")
-        layout.addWidget(self.review_text, 1)
+        self.review_stack.addWidget(self.review_text)
+        layout.addWidget(self.review_stack, 1)
 
-        # Actions
-        actions = QHBoxLayout()
+        # Two balanced rows leave enough room for every label at the minimum
+        # supported window width, including with the navigation rail expanded.
+        actions = QVBoxLayout()
         actions.setSpacing(10)
+        evaluate_row = QHBoxLayout()
+        evaluate_row.setSpacing(10)
+        report_row = QHBoxLayout()
+        report_row.setSpacing(10)
+        self.action_buttons = {}
 
-        refresh_btn = PushButton(FIF.SYNC, " Refresh Telemetry")
+        def add_action(row, key, button, tooltip):
+            button.setToolTip(tooltip)
+            button.setMinimumHeight(42)
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            row.addWidget(button, 1)
+            self.action_buttons[key] = button
+
+        refresh_btn = PushButton(FIF.SYNC, "Refresh Telemetry")
         refresh_btn.clicked.connect(self.update_review)
-        actions.addWidget(refresh_btn)
+        add_action(evaluate_row, "refresh", refresh_btn, "Refresh the current session telemetry")
 
-        actions.addStretch()
+        benchmark_btn = PushButton(FIF.SPEED_HIGH, "Run Benchmark")
+        benchmark_btn.clicked.connect(lambda: self.window._run_evaluator_action("benchmark"))
+        add_action(evaluate_row, "benchmark", benchmark_btn, "Run the tracking benchmark")
 
-        open_folder_btn = PushButton(FIF.FOLDER, " Open Evidence Folder")
+        compare_btn = PushButton(FIF.SYNC, "Compare Algorithms")
+        compare_btn.clicked.connect(lambda: self.window._run_evaluator_action("compare"))
+        add_action(evaluate_row, "compare", compare_btn, "Compare tracking algorithms")
+
+        stress_btn = PushButton(FIF.GLOBE, "Stress Sweep")
+        stress_btn.clicked.connect(lambda: self.window._run_evaluator_action("stress-test"))
+        add_action(evaluate_row, "stress", stress_btn, "Run the disturbance stress sweep")
+
+        open_folder_btn = PushButton(FIF.FOLDER, "Open Evidence Folder")
         open_folder_btn.clicked.connect(self.window._open_reports)
-        actions.addWidget(open_folder_btn)
+        add_action(report_row, "folder", open_folder_btn, "Open the evidence report folder")
 
-        finish_btn = PrimaryPushButton(FIF.SAVE, " Finish Run & Save Reports")
+        finish_btn = PrimaryPushButton(FIF.SAVE, "Finish Run and Save Reports")
         finish_btn.clicked.connect(self.finish_run)
-        actions.addWidget(finish_btn)
+        add_action(report_row, "finish", finish_btn, "Finish the run and save its reports")
 
+        export_btn = PrimaryPushButton(FIF.SHARE, "Export Evidence Package")
+        export_btn.clicked.connect(self.window._export_evidence)
+        add_action(report_row, "export", export_btn, "Export the complete evidence package")
+
+        actions.addLayout(evaluate_row)
+        actions.addLayout(report_row)
         layout.addLayout(actions)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.update_review()
 
     def update_review(self):
         summary = self.window.tracker.telemetry.get_summary()
         if not summary["total_frames"]:
-            self.review_text.setHtml(
-                "<div style='font-family: Segoe UI, sans-serif; padding: 20px;'>"
-                "<h2 style='color: #f0f6fc; margin-bottom: 8px;'>No Active Session Telemetry</h2>"
-                "<p style='color: #8b949e;'>Start a tracking pass from <b>Home</b> or <b>Mission Setup</b> to record real-time performance evidence.</p>"
-                "</div>"
-            )
+            self.review_stack.setCurrentWidget(self.empty_state)
             return
+
+        self.review_stack.setCurrentWidget(self.review_text)
 
         acq_pass = summary.get("acquisition_passed", True)
         rms_pass = summary.get("error_passed", True)
         loss_pass = summary.get("loss_passed", True)
         reacq_pass = summary.get("reacquisition_passed", True)
+        reacq_evaluated = summary.get("reacquisition_evaluated", False)
+        acquisition_value = (
+            f"{summary['acquisition_time_s']:.2f} s"
+            if self.window.tracker.telemetry.has_first_acquisition else "Not acquired"
+        )
+        reacquisition_value = (
+            f"{summary['reacquisition_time_s']:.2f} s"
+            if reacq_evaluated else "Not evaluated"
+        )
 
         def badge(passed: bool, label: str = "PASS"):
             color = "#34d399" if passed else "#f87171"
@@ -313,6 +379,12 @@ class ReviewInterface(QWidget):
             border = "#059669" if passed else "#dc2626"
             text = label if passed else "FAIL"
             return f"<span style='color: {color}; background-color: {bg}; border: 1px solid {border}; border-radius: 4px; padding: 3px 10px; font-weight: 700; font-family: Consolas;'>{text}</span>"
+
+        reacq_badge = badge(reacq_pass) if reacq_evaluated else (
+            "<span style='color: #9ca3af; background-color: #202833; "
+            "border: 1px solid #4b5563; border-radius: 4px; "
+            "padding: 3px 10px; font-weight: 700; font-family: Consolas;'>N/A</span>"
+        )
 
         logo_uri = f"file:///{self.window.logo_path.replace(os.sep, '/')}" if hasattr(self.window, 'logo_path') and os.path.exists(self.window.logo_path) else ""
         logo_html = f"<img src='{logo_uri}' width='48' height='48' style='vertical-align: middle;' />" if logo_uri else ""
@@ -344,7 +416,7 @@ class ReviewInterface(QWidget):
                 </tr>
                 <tr style='border-bottom: 1px solid #161f2c;'>
                     <td style='padding: 10px 6px;'><b>Acquisition Time</b></td>
-                    <td style='padding: 10px 6px; font-family: Consolas;'>{summary['acquisition_time_s']:.2f} s</td>
+                    <td style='padding: 10px 6px; font-family: Consolas;'>{acquisition_value}</td>
                     <td style='padding: 10px 6px; color: #8b949e;'>&le; 2.00 s</td>
                     <td style='padding: 10px 6px; text-align: right;'>{badge(acq_pass)}</td>
                 </tr>
@@ -362,19 +434,23 @@ class ReviewInterface(QWidget):
                 </tr>
                 <tr style='border-bottom: 1px solid #161f2c;'>
                     <td style='padding: 10px 6px;'><b>Re-acquisition Time</b></td>
-                    <td style='padding: 10px 6px; font-family: Consolas;'>{summary['reacquisition_time_s']:.2f} s</td>
+                    <td style='padding: 10px 6px; font-family: Consolas;'>{reacquisition_value}</td>
                     <td style='padding: 10px 6px; color: #8b949e;'>&le; 1.00 s</td>
-                    <td style='padding: 10px 6px; text-align: right;'>{badge(reacq_pass)}</td>
+                    <td style='padding: 10px 6px; text-align: right;'>{reacq_badge}</td>
                 </tr>
             </table>
 
             <h3 style='color: #f0f6fc; margin-top: 16px; margin-bottom: 8px;'>Operational Statistics</h3>
             <ul style='color: #8b949e; font-size: 13px; line-height: 1.8;'>
+                <li>Accuracy Basis: <b style='color: #f0f6fc;'>{summary['accuracy_basis']}</b></li>
+                <li>Centroid RMSE: <b style='color: #f0f6fc; font-family: Consolas;'>{summary['centroid_rmse_px'] if summary['centroid_rmse_px'] is not None else 'N/A'} px</b></li>
                 <li>Total Frames Processed: <b style='color: #f0f6fc; font-family: Consolas;'>{summary['total_frames']}</b></li>
                 <li>Session Duration: <b style='color: #f0f6fc; font-family: Consolas;'>{summary['simulation_duration_s']:.2f} s</b></li>
                 <li>Lock Retention: <b style='color: #f0f6fc; font-family: Consolas;'>{summary['lock_retention_pct']:.1f}%</b></li>
                 <li>Peak Boresight Error: <b style='color: #f0f6fc; font-family: Consolas;'>{summary['max_error_px']:.2f} px</b></li>
                 <li>Average Loop Cycle: <b style='color: #f0f6fc; font-family: Consolas;'>{summary['average_processing_time_ms']:.2f} ms</b></li>
+                <li>P50 / P95 / Max Loop Cycle: <b style='color: #f0f6fc; font-family: Consolas;'>{summary['processing_p50_ms']:.2f} / {summary['processing_p95_ms']:.2f} / {summary['max_processing_time_ms']:.2f} ms</b></li>
+                <li>Conservative Throughput (1000 / p95): <b style='color: #f0f6fc; font-family: Consolas;'>{summary['conservative_fps']:.1f} FPS</b></li>
             </ul>
         </div>
         """
@@ -386,4 +462,3 @@ class ReviewInterface(QWidget):
         self.update_review()
         if path:
             self.window.show_info_toast("Session Reports Saved", f"Exported evidence to {path}")
-

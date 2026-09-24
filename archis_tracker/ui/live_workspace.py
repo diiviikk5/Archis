@@ -90,6 +90,11 @@ class TrackingInterface(QWidget):
         self.source_button.setFixedWidth(130)
         self.source_button.clicked.connect(window._open_video)
         transport.addWidget(self.source_button)
+        self.truth_button = PushButton(FIF.DOCUMENT, "Load truth")
+        self.truth_button.setFixedWidth(110)
+        self.truth_button.clicked.connect(window._open_truth)
+        self.truth_button.setToolTip("CSV/JSON frame or timestamp centroid sidecar")
+        transport.addWidget(self.truth_button)
         self.playback_speed = ComboBox()
         self.playback_speed.addItems(["0.25x", "0.5x", "1x real time"])
         self.playback_speed.setCurrentIndex(2)
@@ -97,10 +102,18 @@ class TrackingInterface(QWidget):
         self.playback_speed.setToolTip("Playback pace; measurements retain sensor timing")
         self.playback_speed.currentIndexChanged.connect(window._set_playback_speed)
         transport.addWidget(self.playback_speed)
+        self.view_mode = ComboBox()
+        self.view_mode.addItems(["Split", "Sensor", "World", "Judge"])
+        self.view_mode.setFixedWidth(105)
+        self.view_mode.setToolTip("Choose the synchronized world and sensor layout")
+        self.view_mode.currentTextChanged.connect(self._set_view_mode)
+        transport.addWidget(self.view_mode)
         transport.addStretch()
         self.capture_button = self._tool(FIF.SAVE, "Save sensor frame", self._capture)
         self.capture_button.setEnabled(False)
         transport.addWidget(self.capture_button)
+        self.demo_button = self._tool(FIF.SHARE, "Capture synchronized demo evidence", window._capture_demo_action)
+        transport.addWidget(self.demo_button)
         self.inspector_button = self._tool(FIF.SETTING, "Toggle inspector", self._toggle_inspector)
         transport.addWidget(self.inspector_button)
         root.addLayout(transport)
@@ -111,6 +124,8 @@ class TrackingInterface(QWidget):
         self.vertical_splitter.setChildrenCollapsible(False)
         self.optical_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.optical_splitter.setChildrenCollapsible(False)
+        self.scene_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.scene_splitter.setChildrenCollapsible(False)
         camera = QWidget()
         camera_layout = QVBoxLayout(camera)
         camera_layout.setContentsMargins(0, 0, 0, 0)
@@ -126,7 +141,33 @@ class TrackingInterface(QWidget):
         self.viewport.designate_target_signal.connect(window._on_viewport_designated)
         self.viewport.spawn_decoy_signal.connect(window._on_viewport_spawn_decoy)
         camera_layout.addWidget(self.viewport, 1)
-        self.optical_splitter.addWidget(camera)
+        self.camera_panel = camera
+        self.scene_splitter.addWidget(camera)
+
+        self.world_panel = QWidget()
+        world_layout = QVBoxLayout(self.world_panel)
+        world_layout.setContentsMargins(0, 0, 0, 0)
+        world_layout.setSpacing(6)
+        world_header = QHBoxLayout()
+        world_title = QLabel("Virtual world / camera FOV")
+        world_title.setObjectName("sourceLabel")
+        world_header.addWidget(world_title)
+        world_header.addStretch()
+        world_layout.addLayout(world_header)
+        self.minimap = MinimapWidget()
+        self.minimap.set_references(
+            window.tracker.primary_target,
+            window.tracker.camera,
+            window.tracker.secondary_targets,
+            window.tracker.world_model,
+        )
+        self.minimap.designate_world_signal.connect(window._on_minimap_designated)
+        self.minimap.spawn_decoy_world_signal.connect(window._on_minimap_spawn_decoy)
+        world_layout.addWidget(self.minimap, 1)
+        self.scene_splitter.addWidget(self.world_panel)
+        self.scene_splitter.setStretchFactor(0, 1)
+        self.scene_splitter.setStretchFactor(1, 1)
+        self.optical_splitter.addWidget(self.scene_splitter)
 
         self.inspector = QTabWidget()
         self.inspector.setMinimumWidth(240)
@@ -147,7 +188,8 @@ class TrackingInterface(QWidget):
         detail_layout.addSpacing(16)
         detail_layout.addWidget(QLabel("Overlays"))
         self.overlay_controls = {}
-        for text, attribute in (("Boresight", "show_crosshair"), ("Detection", "show_detection"),
+        for text, attribute in (("Boresight", "show_crosshair"), ("Alignment rings", "show_alignment_rings"),
+                                ("Detection", "show_detection"),
                                 ("Prediction", "show_prediction"), ("Error vector", "show_error_vector"),
                                 ("Search gate", "show_gate"), ("Model heatmap", "show_heatmap")):
             checkbox = QCheckBox(text)
@@ -161,11 +203,6 @@ class TrackingInterface(QWidget):
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll.setWidget(details)
         self.inspector.addTab(scroll, "Inspector")
-        self.minimap = MinimapWidget()
-        self.minimap.set_references(window.tracker.primary_target, window.tracker.camera, window.tracker.secondary_targets)
-        self.minimap.designate_world_signal.connect(window._on_minimap_designated)
-        self.minimap.spawn_decoy_world_signal.connect(window._on_minimap_spawn_decoy)
-        self.inspector.addTab(self.minimap, "World")
         self.optical_splitter.addWidget(self.inspector)
         self.optical_splitter.setStretchFactor(0, 1)
         self.vertical_splitter.addWidget(self.optical_splitter)
@@ -178,6 +215,7 @@ class TrackingInterface(QWidget):
         self.status_line = QLabel("No frames processed")
         self.status_line.setObjectName("sourceLabel")
         root.addWidget(self.status_line)
+        self._set_view_mode("Split")
 
     def _tool(self, icon, title, callback):
         button = ToolButton(icon)
@@ -194,6 +232,17 @@ class TrackingInterface(QWidget):
     def _toggle_inspector(self):
         self.inspector.setVisible(self.inspector.isHidden())
 
+    def _set_view_mode(self, mode):
+        if self.window.video_source and mode != "Sensor":
+            self.view_mode.setCurrentText("Sensor")
+            return
+        self.camera_panel.setVisible(mode in ("Split", "Sensor", "Judge"))
+        self.world_panel.setVisible(mode in ("Split", "World", "Judge"))
+        self.inspector.setVisible(mode != "Judge")
+        self.charts.setVisible(mode != "Judge")
+        if mode in ("Split", "Judge"):
+            self.scene_splitter.setSizes([500, 500])
+
     def _capture(self):
         if self.viewport.frame_image is None:
             return
@@ -205,28 +254,42 @@ class TrackingInterface(QWidget):
 
     def refresh(self, detection):
         tracker = self.window.tracker
+        if hasattr(self.window, "scenario_summary"):
+            self.window.scenario_summary.refresh()
         source = self.window.video_source
         self.source_label.setText(source.path.name if source else "Simulation / sensor feed")
         self.source_label.setToolTip(str(source.path) if source else "Virtual optical sensor")
         self.frame_label.setText(f"{self.viewport.frame_width} x {self.viewport.frame_height}")
-        self.inspector.setTabEnabled(1, source is None)
-        if source and self.inspector.currentIndex() == 1:
-            self.inspector.setCurrentIndex(0)
+        if source and self.view_mode.currentText() != "Sensor":
+            self.view_mode.setCurrentText("Sensor")
         self.fields["Detector"].setText(detection.algorithm_used if detection else "--")
         model = tracker.detector.ai_detector
-        ai_active = tracker.detector.config.algorithm == TrackingAlgorithm.AI_ONNX
+        ai_active = tracker.detector.config.algorithm in (TrackingAlgorithm.AI_ONNX, TrackingAlgorithm.HYBRID)
         self.fields["Model"].setText(model.status if ai_active else "Not selected")
         self.fields["Model"].setToolTip(model.last_error or str(model.model_path))
-        self.fields["Post-filter"].setText("Shape heuristic" if ai_active and tracker.detector.config.enable_ai_decoy_filter else "Off")
+        identity = tracker.last_result.diagnostics.get("identity_status") if tracker.last_result else None
+        self.fields["Post-filter"].setText(identity or ("AI shape + temporal acquisition" if ai_active else "Temporal acquisition"))
         self.fields["Response"].setText(f"{detection.confidence:.3f}" if detection else "--")
         self.fields["Response"].setToolTip("Uncalibrated detector response, not a probability of correctness")
         self.fields["Centroid"].setText(f"({detection.x:.1f}, {detection.y:.1f}) px" if detection and detection.detected else "Not detected")
-        self.fields["Centroid"].setToolTip("Image pixel coordinates on 640x480 sensor. Boresight center is (320, 240).")
+        center_x = self.viewport.frame_width / 2.0
+        center_y = self.viewport.frame_height / 2.0
+        self.fields["Centroid"].setToolTip(
+            f"Native image coordinates. Boresight center is ({center_x:.1f}, {center_y:.1f})."
+        )
         err_val = tracker.telemetry.current_error_px if detection and detection.detected else 0.0
         self.fields["Boresight Error"].setText(f"{err_val:.2f} px (<=10 px PASS)" if detection and detection.detected else "--")
         self.fields["Boresight Error"].setStyleSheet("color: #4ade80; font-weight: bold;" if err_val <= 10.0 else "color: #f87171;")
         self.fields["SNR"].setText(f"{detection.snr_db:.1f} dB" if detection and detection.detected else "--")
-        self.fields["Pan / tilt"].setText(f"{tracker.camera.pan_deg:+.2f} / {tracker.camera.tilt_deg:+.2f} deg")
+        command = tracker.last_result.command if tracker.last_result else None
+        if source and command is not None:
+            self.fields["Pan / tilt"].setText(
+                f"theoretical {command.pan_rate_deg_s:+.2f} / {command.tilt_rate_deg_s:+.2f} deg/s"
+            )
+        else:
+            self.fields["Pan / tilt"].setText(
+                f"{tracker.camera.pan_deg:+.2f} / {tracker.camera.tilt_deg:+.2f} deg"
+            )
         self.fields["Latency"].setText(f"{tracker.telemetry.pipeline_latency_ms:.2f} ms")
         self.capture_button.setEnabled(self.viewport.frame_image is not None)
         self.status_line.setText(f"{'Video' if source else 'Simulation'}  |  {tracker.telemetry.total_frames} frames  |  {self.window.playback_scale:g}x playback")

@@ -19,6 +19,7 @@ class ViewportWidget(QWidget):
         self.state = TrackingState.IDLE
         self.error_px = 0.0
         self.show_crosshair = True
+        self.show_alignment_rings = False
         self.show_detection = True
         self.show_prediction = False
         self.show_error_vector = False
@@ -54,17 +55,29 @@ class ViewportWidget(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
+        self._draw(painter, self.width(), self.height(), record_transform=True)
+
+    def render_image(self, width: int = 640, height: int = 480) -> QImage:
+        image = QImage(width, height, QImage.Format.Format_ARGB32)
+        image.fill(QColor("#101112"))
+        painter = QPainter(image)
+        self._draw(painter, width, height, record_transform=False)
+        painter.end()
+        return image
+
+    def _draw(self, painter: QPainter, width: int, height: int, *, record_transform: bool):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        painter.fillRect(self.rect(), QColor("#101112"))
+        painter.fillRect(QRectF(0, 0, width, height), QColor("#101112"))
         if self.frame_image is None:
             painter.setPen(QColor("#8c9096"))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Sensor ready")
+            painter.drawText(QRectF(0, 0, width, height), Qt.AlignmentFlag.AlignCenter, "Sensor ready")
             return
-        scale = min(self.width() / self.frame_width, self.height() / self.frame_height)
+        scale = min(width / self.frame_width, height / self.frame_height)
         rw, rh = self.frame_width * scale, self.frame_height * scale
-        ox, oy = (self.width()-rw)/2, (self.height()-rh)/2
-        self.last_scale, self.last_offset_x, self.last_offset_y = scale, ox, oy
+        ox, oy = (width-rw)/2, (height-rh)/2
+        if record_transform:
+            self.last_scale, self.last_offset_x, self.last_offset_y = scale, ox, oy
         image_rect = QRectF(ox, oy, rw, rh)
         painter.drawImage(image_rect, self.frame_image)
         painter.setClipRect(image_rect)
@@ -74,6 +87,11 @@ class ViewportWidget(QWidget):
 
         center = point(self.frame_width/2, self.frame_height/2)
         detection = self.detection
+        if self.show_alignment_rings:
+            painter.setPen(QPen(QColor(74, 222, 128, 65), 1))
+            for fraction in (0.125, 0.25, 0.375):
+                radius = min(rw, rh) * fraction
+                painter.drawEllipse(center, radius, radius)
         if self.show_heatmap and detection is not None and detection.heatmap is not None:
             bounds = getattr(detection, "heatmap_bbox", None)
             if bounds is not None:
@@ -113,4 +131,3 @@ class ViewportWidget(QWidget):
         if self.show_prediction and self.state in (TrackingState.TRACKING, TrackingState.DEAD_RECKONING):
             painter.setPen(QPen(QColor("#60c4d6"), 1, Qt.PenStyle.DotLine))
             painter.drawEllipse(point(self.pred_x, self.pred_y), 6, 6)
-

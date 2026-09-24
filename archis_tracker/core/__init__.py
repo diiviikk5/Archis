@@ -14,6 +14,13 @@ from .kalman_filter import KalmanFilter2D
 from .controller import GimbalController
 from .telemetry import TelemetryEngine
 from .tracker import TrackingSystem
+from .contracts import (
+    CameraCommand, CanonicalTrackingState, Detection, FramePacket,
+    GroundTruthSample, TrackEstimate, TrackingResult,
+)
+from .performance import PerformanceRecorder, PerformanceSummary
+from .optics import PinholeCameraModel
+from .scenario import Scenario, ScenarioError, load_scenario, tracker_from_scenario
 
 __all__ = [
     "CameraConfig", "EnvironmentConfig", "TargetConfig", "DisturbanceConfig",
@@ -21,5 +28,9 @@ __all__ = [
     "AtmosphericCondition", "PlatformMotionType", "TrackingState",
     "VirtualEnvironment", "TargetBeacon", "VirtualCamera", "DisturbanceEngine",
     "BeaconDetector", "DetectionResult", "KalmanFilter2D", "GimbalController",
-    "TelemetryEngine", "TrackingSystem"
+    "TelemetryEngine", "TrackingSystem", "CameraCommand",
+    "CanonicalTrackingState", "Detection", "FramePacket", "GroundTruthSample",
+    "TrackEstimate", "TrackingResult", "PinholeCameraModel",
+    "PerformanceRecorder", "PerformanceSummary",
+    "Scenario", "ScenarioError", "load_scenario", "tracker_from_scenario",
 ]

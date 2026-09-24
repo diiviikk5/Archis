@@ -1,13 +1,18 @@
-# High-Speed Evasive Target Tracking Audit
+# High-Speed Evasive Target Benchmark
 
-## Executive Summary
-85 px/s Brownian motion, 0.76px RMS error, 0.0% loss
+<!-- generated-by: scripts/generate_benchmark_evidence.py engine-fingerprint: a709e0f7501437d006e000b7e253f0481b2972cd73cd741b08294bc2491bfeb3 -->
 
-## Results Matrix
-| Metric | Specification Target | Measured Value | Compliance |
-| :--- | :--- | :--- | :--- |
-| Acquisition Time | <= 2.0 s | 0.33 s | PASSED [PASS] |
-| Steady-State Tracking Error | <= 10.0 px | 0.58 px | PASSED [PASS] |
-| Target Loss Rate | < 5.0 % | 0.00 % | PASSED [PASS] |
-| Re-acquisition Time | <= 1.0 s | 0.00 s | PASSED [PASS] |
-| Processing Speed | >= 20 FPS | 204.2 FPS | PASSED [PASS] |
+Generated from three 60-second runs (1,800 frames each) using seeds 26169–26171.
+
+| Metric | SIH gate | Measured range | Result |
+| --- | ---: | ---: | --- |
+| Acquisition time | ≤ 2.0 s | 0.100 s | PASS |
+| Centroid RMSE | ≤ 10 px | 0.029–0.031 px | PASS |
+| Pointing RMSE | ≤ 10 px | 2.972–3.184 px | PASS |
+| Target loss | < 5% | 0.00% | PASS |
+| Worst re-acquisition | ≤ 1.0 s when applicable | n/a | PASS |
+| Conservative throughput (1000 / p95 latency) | ≥ 20 FPS | 93.6–96.5 FPS | 3/3 on this host |
+
+Deterministic accuracy/control verdict: **PASS**. Throughput is reported separately because it depends on the host. A scenario is not claimed as a universal strict pass from these development-machine timings.
+
+Host: `Intel(R) Core(TM) i5-1035G1 CPU @ 1.00GHz` · `Linux-7.2.5-3-omarchy-x86_64-with-glibc2.44` · Python `3.14.7` · NumPy `2.5.3` · OpenCV `5.0.0`.

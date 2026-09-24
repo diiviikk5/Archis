@@ -1,5 +1,5 @@
 import React from 'react';
-import { Video, CheckCircle, Database, ShieldAlert, Cpu } from 'lucide-react';
+import { Video, CheckCircle, Database } from 'lucide-react';
 
 export const BenchmarkSection: React.FC = () => {
   return (
@@ -13,7 +13,7 @@ export const BenchmarkSection: React.FC = () => {
             Benchmark Performance-2: Source Abstraction
           </h2>
           <p className="text-slate-400 max-w-2xl mx-auto text-sm">
-            How ARCHIS ingests organizer-provided .mp4 video feeds at 30 FPS without modifying a single line of detection or tracking code.
+            The same immutable frame contract drives reproducible simulation and native-resolution organizer video, with optional CSV/JSON truth sidecars.
           </p>
         </div>
 
@@ -57,31 +57,34 @@ export const BenchmarkSection: React.FC = () => {
               <Database className="w-4 h-4" /> Rehearsed Scoring Validation
             </div>
             <p className="text-slate-300 font-sans text-sm leading-relaxed">
-              Pre-tested against noisy .mp4 test feeds with 2D sinusoidal trajectories:
+              Fifteen 60-second runs (five scenarios, seeds 26169-26171) on the development machine:
             </p>
 
             <div className="space-y-2.5">
               <div className="flex justify-between py-1.5 border-b border-slate-800">
-                <span className="text-slate-400">Centroiding Error (GT):</span>
-                <span className="text-emerald-300 font-bold">0.38 px (Spec &le; 10 px)</span>
+                <span className="text-slate-400">Centroid RMSE:</span>
+                <span className="text-emerald-300 font-bold">0.02-0.26 px</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-800">
-                <span className="text-slate-400">Centroiding RMSE:</span>
-                <span className="text-emerald-300 font-bold">0.42 px</span>
+                <span className="text-slate-400">Pointing RMSE:</span>
+                <span className="text-amber-300 font-bold">1.00-13.15 px</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-800">
-                <span className="text-slate-400">Lock Retention Rate:</span>
-                <span className="text-emerald-300 font-bold">97.8% (Spec &ge; 95%)</span>
+                <span className="text-slate-400">Worst Target Loss:</span>
+                <span className="text-emerald-300 font-bold">0.50% (Spec &lt; 5%)</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-800">
-                <span className="text-slate-400">Processing Throughput:</span>
-                <span className="text-emerald-300 font-bold">134.6 FPS (Spec &ge; 20 FPS)</span>
+                <span className="text-slate-400">Measured Throughput:</span>
+                <span className="text-emerald-300 font-bold">75-333 FPS (Spec &ge; 20)</span>
               </div>
               <div className="flex justify-between py-1.5">
-                <span className="text-slate-400">Benchmark-2 Status:</span>
-                <span className="text-emerald-400 font-bold">100% PASS GUARANTEED</span>
+                <span className="text-slate-400">Strict Scenario Gate:</span>
+                <span className="text-amber-300 font-bold">4/5 pass; jitter needs tuning</span>
               </div>
             </div>
+            <p className="text-[11px] leading-relaxed text-slate-400 font-sans">
+              Platform jitter kept centroid accuracy below 0.04 px but produced 12.99-13.15 px pointing RMSE, above the strict 10 px gate. Results are reproducible evidence, not a guarantee for unseen video.
+            </p>
           </div>
         </div>
       </div>
