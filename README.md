@@ -83,9 +83,9 @@ The estimator uses a strict candidate-association gate followed by a deliberatel
 
 Each selected beacon now carries measured FWHM, aperture SNR, peak SNR, edge-clipping status, and saturated-core fraction. Archis converts this evidence to bounded measurement uncertainty using `σpx = k·FWHM/(2·SNRaperture)`, with `k = 14.2` from the deterministic p95 calibration matrix and a 0.15–20 px clamp. Clipping and saturation add explicit uncertainty penalties. Candidate area, centroid padding, prediction-gate size, and DoG scales follow the measured spot size instead of assuming one fixed beacon footprint.
 
-### New scenario controls
+### Scenario controls
 
-Schema-v2 scenarios can enable the AstraTrack-inspired features without changing existing preset behavior:
+Schema-v2 scenarios can enable the following optional controls without changing existing preset behavior:
 
 ```json
 {
@@ -121,53 +121,18 @@ Schema-v2 scenarios can enable the AstraTrack-inspired features without changing
 
 Use `scintillation_model: "lognormal"` with `scintillation_log_std` for the compatible empirical model, or `"gamma_gamma"` with `rytov_variance` for the optional unit-mean physical irradiance model. The active-configuration sidebar shows the selected model, current adaptive FWHM, and measurement-noise calibration.
 
-## FSOC-tracker selective upgrade
+## Tracking and validation details
 
-`Yashrajz06/fsoc-tracker` commit `0c06a51` was reviewed as a technical reference. Because that repository did not provide a software license, no source was copied. The useful measurement and validation concepts were independently implemented against Archis contracts and tested in the deterministic engine.
-
-| Area | Previous Archis | Current implementation | Practical benefit |
-| --- | --- | --- | --- |
-| Spot evidence | Peak intensity and legacy dB estimate | FWHM, aperture/peak SNR, clipping and saturation | Reports expose optical quality instead of one opaque confidence |
-| Kalman `R` | Detector-confidence scaling | Calibrated, bounded FWHM/SNR uncertainty plus clipping/saturation penalties | Filter confidence follows actual sensor evidence |
-| Candidate geometry | Fixed morphology and area limits | Measured-scale DoG, area, padding and prediction gate | Better support for changing apparent spot size |
-| Timing gate | Mean loop time | p50, p95 and max latency; gate uses `1000/p95` FPS | A few slow frames can no longer be hidden by a fast mean |
-| Optical validation | Noise-only scenario sweep | Deterministic SNR × saturation × spot-size sweep and stored calibration | Reproducible calibration rather than a guessed factor |
-| Speed claim | Scenario-specific high-speed examples | Finite sweep capped by the configured gimbal mechanical limit | Trackable velocity is evidence-bounded, not unbounded |
-| Turbulence | Warp, blur and log-normal scintillation | Optional seeded Gamma–Gamma/Rytov model | Adds a physically parameterized irradiance stress mode |
-
-## AstraTrack selective-upgrade comparison
-
-AstraTrack commit `856b483f89f33a77b61c8735f48df6a79a75c994` was reviewed module-by-module. Concepts were reimplemented only where they strengthened Archis; its UI, HSV detector, model-less “AI” fallback, heuristic uncertainty expansion, periodic pseudo-random blackout, and process-randomized `hash()` seeding were not imported.
-
-| Area | Before | Current Archis | Result |
-| --- | --- | --- | --- |
-| Kalman correction | Abbreviated covariance update | Joseph-form covariance update with symmetry restoration | Better long-run numerical stability |
-| Estimator outliers | Candidate association gate only | Candidate gate plus configurable catastrophic-jump sanity gate | Defense in depth against false state jumps |
-| Periodic safety scan | Full-frame scan could bypass the local prediction gate | Full-frame search retained while confirmed estimates remain sanity-gated | Safer decoy handling |
-| Motion compensation | PID plus velocity feed-forward | Optional position/velocity/acceleration lead projection for known latency | Supports delayed video and actuator pipelines |
-| Dropout testing | One scheduled blackout window | Scheduled window plus seeded two-state burst loss | More realistic repeatable fade/loss stress tests |
-| Randomness isolation | Shared disturbance RNG | Separate stable burst-loss RNG stream | Enabling dropout does not change unrelated noise |
-| Configuration | Scheduled dropout fields only | Validated schema and legacy-preset fields for burst loss, estimator gate, and latency | Reproducible CLI/UI-compatible configuration |
-| Benchmark serialization | NumPy booleans could fail JSON serialization when a target left the FOV | Visibility normalized to a native boolean | Reliable long-run evidence export |
-| UI timing test | Assumed synchronous processing | Waits for the existing worker-thread completion signal | Tests the non-blocking UI architecture correctly |
-
-### Before/after benchmark
-
-This historical comparison used `scenarios/schema_v2_example.json`, 1,800 frames at 30 Hz, seed `26169`, and the same development machine. “Before” is engine commit `2f2e0f6`; “after” is engine commit `93e432a`. It predates the current optical-quality upgrade; use the generated matrix below for current results. Accuracy and state metrics are deterministic for the recorded seed. Processing throughput is wall-clock dependent and should not be treated as an algorithmic accuracy metric.
-
-| Metric | Before | After | Change | SIH gate |
-| --- | ---: | ---: | ---: | --- |
-| Acquisition time | 0.333 s | 0.333 s | No change | ≤ 2 s — Pass |
-| Centroid RMSE | 2.455 px | 2.486 px | +0.030 px | ≤ 10 px — Pass |
-| Pointing RMSE | 3.370 px | 3.343 px | **−0.028 px** | ≤ 10 px — Pass |
-| Lock retention | 98.827% | 98.827% | No change | Loss < 5% — Pass |
-| Target loss | 1.173% | 1.173% | No change | < 5% — Pass |
-| Reacquisition events | 3 | 2 | **1 fewer** | Informational |
-| Worst reacquisition | 0.300 s | 0.333 s | +0.033 s | ≤ 1 s — Pass |
-| Processing throughput | 37.29 FPS | 36.30 FPS | −0.99 FPS | ≥ 20 FPS — Pass |
-| Overall strict result | Pass | Pass | All release gates retained | Pass |
-
-The small centroid/reacquisition differences come from the numerically stable covariance correction changing finite-precision filter evolution. The default profile retains the same lock and loss rates, slightly improves pointing RMSE, and remains comfortably inside every release gate. Latency compensation and burst loss are opt-in, so existing presets keep their established behavior.
+| Area | Current implementation | Purpose |
+| --- | --- | --- |
+| Optical evidence | FWHM, aperture/peak SNR, clipping, and saturation | Expose spot quality in per-frame reports |
+| Measurement uncertainty | Calibrated, bounded FWHM/SNR noise with clipping and saturation penalties | Match filter confidence to sensor evidence |
+| Candidate geometry | Spot-scale-dependent DoG, area, padding, and prediction gate | Handle changes in apparent beacon size |
+| Estimator safety | Joseph-form covariance correction and an outlier sanity gate | Maintain numerical stability and reject implausible jumps |
+| Motion compensation | Optional position/velocity/acceleration lead for configured latency | Evaluate delayed sensor and actuator pipelines |
+| Disturbance testing | Seeded turbulence, burst loss, and isolated random streams | Repeat stress tests without changing unrelated noise |
+| Performance timing | Mean, p50, p95, and maximum latency; conservative FPS uses `1000/p95` | Show both typical and slow-frame processing cost |
+| Validation | Optical-quality sweeps and a mechanically bounded velocity envelope | Keep calibration and speed claims reproducible |
 
 ## Current measured matrix
 
@@ -191,7 +156,7 @@ The seven files under [`docs/benchmarks`](docs/benchmarks) are generated from th
 python -m pytest -q
 ```
 
-The unified suite currently contains **104 passing tests**. The count includes every parameterized case and covers acquisition at the frame center/edges/corners, truth isolation, repeatability, state transitions, CodeLock, controller bounds, preset migration, native-resolution media, truth sidecars, metrics, headless UI startup, estimator outlier rejection, calibrated optical uncertainty, scale-relative detection, Gamma–Gamma repeatability, p95 throughput, velocity bounds, latency compensation, deterministic burst loss, report export, the explicit 3D two-terminal world, and the live active-configuration sidebar.
+The unified suite currently contains **110 passing tests**. The count includes every parameterized case and covers acquisition at the frame center/edges/corners, truth isolation, repeatability, state transitions, CodeLock, controller bounds, preset migration, native-resolution media, truth sidecars, metrics, headless UI startup, estimator outlier rejection, calibrated optical uncertainty, scale-relative detection, Gamma–Gamma repeatability, p95 throughput, velocity bounds, latency compensation, deterministic burst loss, report export, the explicit 3D two-terminal world, world/sensor evidence capture, and the live active-configuration sidebar.
 
 | Test module | Passing cases | Coverage |
 | --- | ---: | --- |
@@ -199,6 +164,7 @@ The unified suite currently contains **104 passing tests**. The count includes e
 | `test_association.py` | 2 | Mahalanobis association and decoy rejection |
 | `test_camera.py` | 3 | Camera geometry, rate limits, coordinate transforms |
 | `test_controller.py` | 2 | PID direction and autonomous search spiral |
+| `test_demo_evidence.py` | 2 | Rendered geometry and detector-robustness evidence |
 | `test_detector.py` | 2 | Clean and noisy optical-beacon detection |
 | `test_disturbances.py` | 7 | Noise, atmosphere, jitter, turbulence, repeatable burst loss |
 | `test_external_video.py` | 2 | Native external frames, BGRA images, sequence ordering |
@@ -206,14 +172,14 @@ The unified suite currently contains **104 passing tests**. The count includes e
 | `test_optics.py` | 3 | FOV intrinsics and angular geometry |
 | `test_optical_validation.py` | 9 | FWHM/SNR/saturation sweeps, calibrated Kalman noise, adaptive geometry, Gamma–Gamma, latency and velocity bounds |
 | `test_performance_v2.py` | 5 | Truth-based reports, honest truth-free metrics, fingerprints |
-| `test_playback_ui.py` | 9 | Worker pacing, viewport, overlays, capture, live controls, configuration sidebar and chart legends |
+| `test_playback_ui.py` | 13 | Worker pacing, viewport, overlays, capture, split/judge views, audit layout, configuration sidebar and chart legends |
 | `test_presets.py` | 3 | Live preset application, atomic rejection, independent limits |
 | `test_session_report.py` | 1 | Automatic CSV/JSON/HTML session evidence |
 | `test_target.py` | 10 | Shapes, six trajectories, continuity, bounce, zero timestep |
 | `test_telemetry.py` | 5 | Empty runs, loss limits, reacquisition, aggregate telemetry, conservative p95 throughput |
 | `test_unified_core.py` | 19 | Contracts, state machine, seeds, truth, CodeLock, new estimator features |
 | `test_world_model.py` | 6 | Explicit terminal poses, relative geometry, physical velocity, decoys, isolation |
-| **Total** | **104** | **All passing** |
+| **Total** | **110** | **All passing** |
 
 <details>
 <summary>Complete passing test inventory</summary>
@@ -257,6 +223,11 @@ The unified suite currently contains **104 passing tests**. The count includes e
 - `test_burst_dropout_is_seeded_repeatable_and_resettable`
 - `test_scheduled_and_burst_dropout_share_one_status_api`
 
+#### Demonstration evidence — 2
+
+- `test_geometry_artifacts_measure_rendered_pixels_and_visibility`
+- `test_detector_gallery_scores_misassociated_decoy_and_timing`
+
 #### External sources, gimbal, and optics — 7
 
 - `test_external_frame_bypasses_simulation_and_tracks_beacon`
@@ -276,7 +247,7 @@ The unified suite currently contains **104 passing tests**. The count includes e
 - `test_identical_seed_runs_have_identical_report_fingerprint`
 - `test_session_writes_csv_json_and_readable_report`
 
-#### Desktop playback and active configuration — 9
+#### Desktop playback and active configuration — 13
 
 - `test_playback_preserves_sensor_period`
 - `test_viewport_uses_actual_frame_dimensions`
@@ -287,6 +258,10 @@ The unified suite currently contains **104 passing tests**. The count includes e
 - `test_navigation_summary_refreshes_after_configuration_changes`
 - `test_navigation_summary_collapses_without_reserving_empty_space`
 - `test_all_chart_legends_are_below_the_plot_area`
+- `test_split_world_sensor_and_judge_modes_keep_visual_context`
+- `test_demo_capture_writes_synchronized_views_and_active_config`
+- `test_review_has_empty_state_and_refreshes_on_navigation`
+- `test_review_actions_fit_minimum_and_default_window_width`
 
 #### Presets — 3
 
@@ -367,9 +342,3 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1
 ```
 
 The script runs tests, creates the one-folder application, packages a portable ZIP, builds the installer when Inno Setup is available, and writes SHA-256 checksums and a release manifest. Keep every file in `dist\ArchisTracker` together. The executable is `dist\ArchisTracker\ArchisTracker.exe`.
-
-## Provenance
-
-Archis1 commit `06022f1` is the product baseline. Qlyraxis commit `2514c5d` supplied the deterministic tracking-core reference. AstraTrack commit `856b483f89f33a77b61c8735f48df6a79a75c994` supplied selected estimator, latency, and disturbance-testing ideas that were independently validated and reimplemented. `Yashrajz06/fsoc-tracker` commit `0c06a51` supplied optical-measurement and validation ideas; because no license was present, Archis uses an independent implementation rather than copied source. Unrelated Git histories were not merged. Existing Archis preset names and the Fluent desktop workflow remain authoritative.
-
-The formal technical report and user manual are intentionally deferred to the final submission pass.
