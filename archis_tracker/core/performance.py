@@ -16,6 +16,7 @@ from archis_tracker import __version__
 
 from .config import PerformanceThresholds
 from .contracts import GroundTruthSample, TrackingResult
+from .optics import PinholeCameraModel
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,7 +29,9 @@ class PerformanceSummary:
     centroid_mean_px: float | None
     centroid_max_px: float | None
     centroid_p95_px: float | None
+    centroid_rmse_urad: float | None
     pointing_rmse_px: float | None
+    pointing_rmse_urad: float | None
     lock_retention_pct: float
     target_loss_pct: float
     average_processing_ms: float
@@ -52,15 +55,21 @@ class PerformanceRecorder:
     FIELDNAMES = (
         "frame_index", "timestamp_s", "state", "detected", "selected_x_px", "selected_y_px",
         "truth_x_px", "truth_y_px", "truth_visible", "centroid_error_px", "pointing_offset_px",
+        "centroid_error_urad", "pointing_offset_urad",
         "pan_rate_deg_s", "tilt_rate_deg_s", "processing_time_ms", "source_fps",
     )
 
     def __init__(self, scenario: str, viewport_px: tuple[int, int], *,
+                 fov_deg: tuple[float, float] | None = None,
                  configuration: dict[str, Any] | None = None,
                  model_metadata: dict[str, Any] | None = None,
                  thresholds: PerformanceThresholds | None = None) -> None:
         self.scenario = scenario
         self.viewport_px = viewport_px
+        self.optics = (
+            PinholeCameraModel(viewport_px[0], viewport_px[1], fov_deg[0], fov_deg[1])
+            if fov_deg is not None else None
+        )
         self.configuration = configuration or {}
         self.model_metadata = model_metadata or {}
         self.thresholds = thresholds or PerformanceThresholds()
@@ -88,6 +97,16 @@ class PerformanceRecorder:
         scored_truth = truth if truth is not None and truth.visible else None
         centroid = math.dist((selected.x_px, selected.y_px), (scored_truth.x_px, scored_truth.y_px)) if selected and scored_truth else None
         pointing = math.dist((scored_truth.x_px, scored_truth.y_px), (self.viewport_px[0] / 2, self.viewport_px[1] / 2)) if scored_truth else None
+        centroid_urad = (
+            self.optics.angular_separation_urad(
+                (selected.x_px, selected.y_px), (scored_truth.x_px, scored_truth.y_px)
+            )
+            if self.optics is not None and selected and scored_truth else None
+        )
+        pointing_urad = (
+            self.optics.boresight_offset_urad(scored_truth.x_px, scored_truth.y_px)
+            if self.optics is not None and scored_truth else None
+        )
         self.rows.append({
             "frame_index": result.frame.index,
             "timestamp_s": result.frame.timestamp_s,
@@ -100,6 +119,8 @@ class PerformanceRecorder:
             "truth_visible": None if truth is None else int(truth.visible),
             "centroid_error_px": centroid,
             "pointing_offset_px": pointing,
+            "centroid_error_urad": centroid_urad,
+            "pointing_offset_urad": pointing_urad,
             "pan_rate_deg_s": None if result.command is None else result.command.pan_rate_deg_s,
             "tilt_rate_deg_s": None if result.command is None else result.command.tilt_rate_deg_s,
             "processing_time_ms": result.processing_time_ms,
@@ -120,6 +141,8 @@ class PerformanceRecorder:
         after = [row for row in self.rows if self.acquired_at is not None and float(row["timestamp_s"]) >= self.acquired_at]
         centroid = [float(row["centroid_error_px"]) for row in after if row["centroid_error_px"] is not None]
         pointing = [float(row["pointing_offset_px"]) for row in after if row["pointing_offset_px"] is not None]
+        centroid_urad = [float(row["centroid_error_urad"]) for row in after if row["centroid_error_urad"] is not None]
+        pointing_urad = [float(row["pointing_offset_urad"]) for row in after if row["pointing_offset_urad"] is not None]
         processing = [float(row["processing_time_ms"]) for row in self.rows]
         truth_available = any(row["truth_visible"] == 1 for row in self.rows)
         locked = sum(
@@ -150,7 +173,9 @@ class PerformanceRecorder:
             self.scenario, len(self.rows), float(self.rows[-1]["timestamp_s"]) - float(self.rows[0]["timestamp_s"]),
             self.acquired_at, centroid_rmse, mean(centroid) if centroid else None,
             max(centroid) if centroid else None, _percentile(centroid, .95) if centroid else None,
+            math.sqrt(mean(value * value for value in centroid_urad)) if centroid_urad else None,
             pointing_rmse,
+            math.sqrt(mean(value * value for value in pointing_urad)) if pointing_urad else None,
             retention, 100.0 - retention, average_ms, max(processing), fps,
             len(self.reacquisition_times), mean(self.reacquisition_times) if self.reacquisition_times else None,
             reacq_max, "ground_truth" if truth_available else "observed_tracking",

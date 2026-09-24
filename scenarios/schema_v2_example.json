@@ -21,6 +21,11 @@
   "disturbances": {
     "atmosphere": "Haze",
     "atmosphere_strength": 0.2,
+    "turbulence_warp_px": 1.5,
+    "turbulence_blur_sigma_px": 0.4,
+    "scintillation_log_std": 0.08,
+    "illumination_flicker_fraction": 0.05,
+    "illumination_flicker_hz": 3.0,
     "gaussian_noise_std": 5.0,
     "salt_pepper_fraction": 0.0,
     "camera_jitter_max_px": 2.0,

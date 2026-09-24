@@ -33,6 +33,9 @@ DEFAULT_SCENARIO: dict[str, Any] = {
     },
     "disturbances": {
         "atmosphere": "Clear", "atmosphere_strength": 0.0,
+        "turbulence_warp_px": 0.0, "turbulence_blur_sigma_px": 0.0,
+        "scintillation_log_std": 0.0,
+        "illumination_flicker_fraction": 0.0, "illumination_flicker_hz": 3.0,
         "gaussian_noise_std": 0.0, "salt_pepper_fraction": 0.0,
         "camera_jitter_max_px": 0.0, "platform_motion": "None",
         "platform_motion_max_px": 0.0,
@@ -113,6 +116,11 @@ def validate_scenario(raw: Any) -> dict[str, Any]:
     _enum_value(disturbance.get("atmosphere", "Clear"), AtmosphericCondition, "disturbances.atmosphere")
     _enum_value(disturbance.get("platform_motion", "None"), PlatformMotionType, "disturbances.platform_motion")
     _number(disturbance.get("atmosphere_strength", 0), "disturbances.atmosphere_strength", 0, 1)
+    _number(disturbance.get("turbulence_warp_px", 0), "disturbances.turbulence_warp_px", 0, 50)
+    _number(disturbance.get("turbulence_blur_sigma_px", 0), "disturbances.turbulence_blur_sigma_px", 0, 20)
+    _number(disturbance.get("scintillation_log_std", 0), "disturbances.scintillation_log_std", 0, 1.5)
+    _number(disturbance.get("illumination_flicker_fraction", 0), "disturbances.illumination_flicker_fraction", 0, .95)
+    _number(disturbance.get("illumination_flicker_hz", 3), "disturbances.illumination_flicker_hz", 0, 100)
     _number(disturbance.get("gaussian_noise_std", 0), "disturbances.gaussian_noise_std", 0, 100)
     _number(disturbance.get("salt_pepper_fraction", 0), "disturbances.salt_pepper_fraction", 0, 0.25)
     _number(disturbance.get("camera_jitter_max_px", 0), "disturbances.camera_jitter_max_px", 0, 100)
@@ -160,6 +168,11 @@ def _migrate_legacy(raw: Mapping[str, Any]) -> dict[str, Any]:
     data["disturbances"].update({
         "atmosphere": disturbances.get("atmospheric_condition", "Clear"),
         "atmosphere_strength": disturbances.get("atmospheric_severity", 0.0),
+        "turbulence_warp_px": disturbances.get("turbulence_warp_px", 0.0),
+        "turbulence_blur_sigma_px": disturbances.get("turbulence_blur_sigma_px", 0.0),
+        "scintillation_log_std": disturbances.get("scintillation_log_std", 0.0),
+        "illumination_flicker_fraction": disturbances.get("illumination_flicker_fraction", 0.0),
+        "illumination_flicker_hz": disturbances.get("illumination_flicker_hz", 3.0),
         "gaussian_noise_std": disturbances.get("gaussian_noise_std", 0.0) if disturbances.get("enable_gaussian_noise") else 0.0,
         "salt_pepper_fraction": disturbances.get("salt_pepper_ratio", 0.0) if disturbances.get("enable_salt_pepper") else 0.0,
         "camera_jitter_max_px": disturbances.get("max_camera_jitter_px", 0.0) if disturbances.get("enable_camera_jitter") else 0.0,
@@ -271,6 +284,11 @@ def tracker_from_scenario(scenario: Scenario):
         max_camera_jitter_px=float(disturbance.get("camera_jitter_max_px", 0)),
         atmospheric_condition=atmosphere,
         atmospheric_severity=float(disturbance.get("atmosphere_strength", 0)),
+        turbulence_warp_px=float(disturbance.get("turbulence_warp_px", 0)),
+        turbulence_blur_sigma_px=float(disturbance.get("turbulence_blur_sigma_px", 0)),
+        scintillation_log_std=float(disturbance.get("scintillation_log_std", 0)),
+        illumination_flicker_fraction=float(disturbance.get("illumination_flicker_fraction", 0)),
+        illumination_flicker_hz=float(disturbance.get("illumination_flicker_hz", 3)),
         enable_platform_motion=platform != PlatformMotionType.NONE,
         platform_motion_type=platform,
         platform_motion_amplitude_px=float(disturbance.get("platform_motion_max_px", 0)),

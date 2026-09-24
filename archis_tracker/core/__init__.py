@@ -19,6 +19,7 @@ from .contracts import (
     GroundTruthSample, TrackEstimate, TrackingResult,
 )
 from .performance import PerformanceRecorder, PerformanceSummary
+from .optics import PinholeCameraModel
 from .scenario import Scenario, ScenarioError, load_scenario, tracker_from_scenario
 
 __all__ = [
@@ -29,6 +30,7 @@ __all__ = [
     "BeaconDetector", "DetectionResult", "KalmanFilter2D", "GimbalController",
     "TelemetryEngine", "TrackingSystem", "CameraCommand",
     "CanonicalTrackingState", "Detection", "FramePacket", "GroundTruthSample",
-    "TrackEstimate", "TrackingResult", "PerformanceRecorder", "PerformanceSummary",
+    "TrackEstimate", "TrackingResult", "PinholeCameraModel",
+    "PerformanceRecorder", "PerformanceSummary",
     "Scenario", "ScenarioError", "load_scenario", "tracker_from_scenario",
 ]

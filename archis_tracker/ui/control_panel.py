@@ -307,6 +307,52 @@ class ControlPanelWidget(QWidget):
         l_sev.addWidget(self.slider_sev)
         l_atm.addLayout(l_sev)
         layout.addWidget(box_atm)
+
+        # Independent propagation effects.  These remain separate from bulk
+        # fog/haze attenuation so evaluators can run meaningful ablations.
+        box_turb = QGroupBox("Turbulence, Scintillation & Flicker")
+        l_turb = QGridLayout(box_turb)
+
+        def disturbance_spin(value, low, high, step, decimals, suffix, attribute):
+            control = QDoubleSpinBox()
+            control.setRange(low, high)
+            control.setSingleStep(step)
+            control.setDecimals(decimals)
+            control.setSuffix(suffix)
+            control.setValue(value)
+            control.valueChanged.connect(
+                lambda new_value, attr=attribute: setattr(
+                    self.tracker.disturb_config, attr, float(new_value)
+                )
+            )
+            return control
+
+        disturbance = self.tracker.disturb_config
+        self.spin_turbulence_warp = disturbance_spin(
+            disturbance.turbulence_warp_px, 0.0, 50.0, 0.1, 1, " px", "turbulence_warp_px"
+        )
+        self.spin_turbulence_blur = disturbance_spin(
+            disturbance.turbulence_blur_sigma_px, 0.0, 20.0, 0.1, 1, " px", "turbulence_blur_sigma_px"
+        )
+        self.spin_scintillation = disturbance_spin(
+            disturbance.scintillation_log_std, 0.0, 1.5, 0.01, 2, " σ", "scintillation_log_std"
+        )
+        self.spin_illumination = disturbance_spin(
+            disturbance.illumination_flicker_fraction, 0.0, 0.95, 0.01, 2, "", "illumination_flicker_fraction"
+        )
+        self.spin_illumination_hz = disturbance_spin(
+            disturbance.illumination_flicker_hz, 0.0, 100.0, 0.5, 1, " Hz", "illumination_flicker_hz"
+        )
+        for row, (label, control) in enumerate((
+            ("Angle-of-arrival warp:", self.spin_turbulence_warp),
+            ("Seeing blur σ:", self.spin_turbulence_blur),
+            ("Scintillation log σ:", self.spin_scintillation),
+            ("Illumination depth:", self.spin_illumination),
+            ("Illumination frequency:", self.spin_illumination_hz),
+        )):
+            l_turb.addWidget(QLabel(label), row, 0)
+            l_turb.addWidget(control, row, 1)
+        layout.addWidget(box_turb)
         
         # 2. Image Noise (Salt & Pepper, Gaussian, Poisson)
         box_noise = QGroupBox("Image Noise (User Selectable)")
@@ -476,6 +522,11 @@ class ControlPanelWidget(QWidget):
         self.slider_tilt_spd.setValue(round(self.tracker.cam_config.max_tilt_speed_deg_s * 10))
         self.combo_atm.setCurrentText(disturbance.atmospheric_condition.value)
         self.slider_sev.setValue(round(disturbance.atmospheric_severity * 100))
+        self.spin_turbulence_warp.setValue(disturbance.turbulence_warp_px)
+        self.spin_turbulence_blur.setValue(disturbance.turbulence_blur_sigma_px)
+        self.spin_scintillation.setValue(disturbance.scintillation_log_std)
+        self.spin_illumination.setValue(disturbance.illumination_flicker_fraction)
+        self.spin_illumination_hz.setValue(disturbance.illumination_flicker_hz)
         self.chk_sp.setChecked(disturbance.enable_salt_pepper)
         self.chk_gauss.setChecked(disturbance.enable_gaussian_noise)
         self.chk_poisson.setChecked(disturbance.enable_poisson_noise)
