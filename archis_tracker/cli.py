@@ -41,6 +41,12 @@ def build_parser() -> argparse.ArgumentParser:
     optics = commands.add_parser("validate-optics")
     optics.add_argument("--seed", type=int, default=26169)
     optics.add_argument("--output-dir", default="reports/optical-validation")
+    geometry = commands.add_parser("validate-geometry")
+    geometry.add_argument("--output-dir", default="reports/geometry-validation")
+    robustness = commands.add_parser("validate-detector")
+    robustness.add_argument("--seed", type=int, default=26169)
+    robustness.add_argument("--algorithm", choices=("hybrid", "iwc", "gaussian"), default="hybrid")
+    robustness.add_argument("--output-dir", default="reports/detector-validation")
     commands.add_parser("gui")
     return parser
 
@@ -59,6 +65,29 @@ def main(argv: list[str] | None = None) -> int:
             print("Input error: --seed cannot be negative", file=sys.stderr)
             return 2
         paths = write_optical_validation(args.output_dir, seed=args.seed)
+        for kind, path in paths.items():
+            print(f"{kind.upper()}: {path}")
+        return 0
+    if args.command == "validate-geometry":
+        from .core.demo_evidence import write_geometry_validation
+        paths = write_geometry_validation(args.output_dir)
+        for kind, path in paths.items():
+            print(f"{kind.upper()}: {path}")
+        return 0
+    if args.command == "validate-detector":
+        from .core.config import TrackingAlgorithm
+        from .core.demo_evidence import write_detector_robustness
+        if args.seed < 0:
+            print("Input error: --seed cannot be negative", file=sys.stderr)
+            return 2
+        algorithms = {
+            "hybrid": TrackingAlgorithm.HYBRID,
+            "iwc": TrackingAlgorithm.IWC,
+            "gaussian": TrackingAlgorithm.GAUSSIAN_FIT,
+        }
+        paths = write_detector_robustness(
+            args.output_dir, seed=args.seed, algorithm=algorithms[args.algorithm]
+        )
         for kind, path in paths.items():
             print(f"{kind.upper()}: {path}")
         return 0

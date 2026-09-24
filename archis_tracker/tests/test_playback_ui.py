@@ -6,6 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
+import json
 from PyQt6.QtWidgets import QApplication
 from archis_tracker.core.config import AtmosphericCondition
 from archis_tracker.ui.main_window import MainWindow
@@ -140,3 +141,36 @@ def test_all_chart_legends_are_below_the_plot_area(window):
         item = plot.getPlotItem()
         assert item.layout.itemAt(4, 1) is item.legend
         assert {label.text for _, label in item.legend.items} == labels
+
+
+def test_split_world_sensor_and_judge_modes_keep_visual_context(window):
+    live = window.tracking_interface
+    window._simulation_tick()
+    assert live.view_mode.currentText() == "Split"
+    assert not live.camera_panel.isHidden()
+    assert not live.world_panel.isHidden()
+    assert window.minimap.world_model.snapshot is not None
+
+    live.view_mode.setCurrentText("World")
+    assert live.camera_panel.isHidden()
+    assert not live.world_panel.isHidden()
+    live.view_mode.setCurrentText("Judge")
+    assert not live.camera_panel.isHidden()
+    assert not live.world_panel.isHidden()
+    assert live.inspector.isHidden()
+    assert live.charts.isHidden()
+    live.view_mode.setCurrentText("Split")
+    assert not live.inspector.isHidden()
+
+
+def test_demo_capture_writes_synchronized_views_and_active_config(window):
+    detection = window.tracker.step(1 / 30)
+    window._render_tracking(detection)
+    paths = window._capture_demo_evidence()
+    assert paths["sensor"].read_bytes().startswith(b"\x89PNG")
+    assert paths["world"].read_bytes().startswith(b"\x89PNG")
+    assert paths["split"].read_bytes().startswith(b"\x89PNG")
+    payload = json.loads(paths["metadata"].read_text(encoding="utf-8"))
+    assert payload["frame_index"] == window.tracker.frame_index
+    assert payload["configuration"]["environment"]["screen_width"] == 2000
+    assert payload["images"] == ["sensor_view.png", "world_view.png", "world_sensor.png"]

@@ -9,12 +9,16 @@ import shutil
 import subprocess
 import sys
 import time
+from dataclasses import asdict
+from enum import Enum
+import json
+from pathlib import Path
 
 from PyQt6.QtCore import (
     QObject, QSettings, QStandardPaths, Qt, QThread, QTimer, QUrl,
     pyqtSignal, pyqtSlot,
 )
-from PyQt6.QtGui import QAction, QDesktopServices, QIcon
+from PyQt6.QtGui import QAction, QDesktopServices, QIcon, QPainter, QPixmap, QColor, QFont
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from qfluentwidgets import (
     FluentWindow, FluentIcon as FIF, NavigationItemPosition,
@@ -289,7 +293,7 @@ class MainWindow(FluentWindow):
         self.truth_sidecar_path = None
         self.tracker.reset()
         self.session_dir = self._start_session(self.session_dir.parent)
-        self.minimap.hide()
+        self.tracking_interface.view_mode.setCurrentText("Sensor")
         self.switchTo(self.tracking_interface)
         self._set_playback_speed(self.tracking_interface.playback_speed.currentIndex())
         self.source_button.setText("Open video")
@@ -363,7 +367,7 @@ class MainWindow(FluentWindow):
                 self.video_source = None
                 self.truth_sidecar = None
                 self.truth_sidecar_path = None
-                self.minimap.show()
+                self.tracking_interface.view_mode.setCurrentText("Split")
                 self.source_button.setText(" Video Input")
                 self._set_playback_speed(self.tracking_interface.playback_speed.currentIndex())
             preset = self.tracker.load_preset(path)
@@ -419,9 +423,117 @@ class MainWindow(FluentWindow):
         if self.worker_busy:
             self.show_warning_toast("Engine Busy", "Pause and retry after the current sensor frame completes.")
             return
-        self._finish_session()
-        archive = shutil.make_archive(str(self.session_dir), "zip", root_dir=self.session_dir)
+        timer_active = self.sim_timer.isActive()
+        self.sim_timer.stop()
+        try:
+            self._finish_session()
+            self._capture_demo_evidence()
+            from ..core.demo_evidence import write_detector_robustness, write_geometry_validation
+            write_geometry_validation(Path(self.session_dir) / "visual_checks" / "geometry")
+            write_detector_robustness(
+                Path(self.session_dir) / "visual_checks" / "detector",
+                seed=self.tracker.disturb_config.random_seed,
+                algorithm=self.tracker.det_config.algorithm,
+            )
+            archive = shutil.make_archive(str(self.session_dir), "zip", root_dir=self.session_dir)
+        except (OSError, ValueError) as exc:
+            self.show_warning_toast("Evidence Export Failed", str(exc))
+            return
+        finally:
+            if timer_active:
+                self.sim_timer.start()
         self.show_success_toast("Evidence Package Exported", archive)
+
+    def _capture_demo_action(self):
+        if self.worker_busy:
+            self.show_warning_toast("Engine Busy", "Pause and retry after the current sensor frame completes.")
+            return
+        timer_active = self.sim_timer.isActive()
+        self.sim_timer.stop()
+        try:
+            paths = self._capture_demo_evidence()
+        except (OSError, ValueError) as exc:
+            self.show_warning_toast("Demo Capture Failed", str(exc))
+            return
+        finally:
+            if timer_active:
+                self.sim_timer.start()
+        self.show_success_toast("Demo Evidence Saved", str(paths["metadata"]))
+
+    def _capture_demo_evidence(self) -> dict[str, Path]:
+        """Save one synchronized UI snapshot and the configuration that produced it."""
+        if self.viewport.frame_image is None or self.tracker.telemetry.total_frames == 0:
+            raise ValueError("process at least one sensor frame before exporting demo evidence")
+        output = Path(self.session_dir)
+        output.mkdir(parents=True, exist_ok=True)
+        sensor_path = output / "sensor_view.png"
+        world_path = output / "world_view.png"
+        split_path = output / "world_sensor.png"
+        metadata_path = output / "demo_evidence.json"
+
+        sensor = self.viewport.render_image()
+        if sensor.isNull() or not sensor.save(str(sensor_path), "PNG"):
+            raise OSError("could not save the sensor view")
+        if self.video_source is None:
+            world = self.minimap.render_image()
+            if world.isNull() or not world.save(str(world_path), "PNG"):
+                raise OSError("could not save the world view")
+            combined = QPixmap(1280, 570)
+            combined.fill(QColor("#10151b"))
+            painter = QPainter(combined)
+            painter.setPen(QColor("#e8f4f5"))
+            painter.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
+            painter.drawText(18, 30, "ARCHIS  |  SYNCHRONIZED WORLD + SENSOR")
+            painter.setFont(QFont("Consolas", 10))
+            acquisition = (
+                f"{self.tracker.telemetry.acquisition_time_s:.2f} s"
+                if self.tracker.telemetry.has_first_acquisition else "pending"
+            )
+            painter.drawText(
+                18, 56,
+                f"Frame {self.tracker.frame_index}  State {self.tracker.canonical_state.value.upper()}"
+                f"  Pointing {self.tracker.telemetry.current_error_px:.2f} px"
+                f"  Acquisition {acquisition}",
+            )
+            painter.drawImage(0, 90, world)
+            painter.drawImage(640, 90, sensor)
+            painter.end()
+            if not combined.save(str(split_path), "PNG"):
+                raise OSError("could not save the synchronized split view")
+
+        tracker = self.tracker
+        payload = {
+            "schema_version": 1,
+            "frame_index": tracker.frame_index if self.video_source is None else tracker.external_frame_index,
+            "simulation_time_s": tracker.sim_time,
+            "source": self._session_metadata(),
+            "canonical_state": tracker.canonical_state.value,
+            "tracking": {
+                "pointing_error_px": tracker.telemetry.current_error_px,
+                "centroid_error_px": tracker.telemetry.current_centroid_error_px,
+                "rms_error_px": tracker.telemetry.rms_error_px,
+                "acquisition_time_s": tracker.telemetry.acquisition_time_s if tracker.telemetry.has_first_acquisition else None,
+                "target_loss_pct": tracker.telemetry.target_loss_pct,
+                "processing_time_ms": tracker.telemetry.pipeline_latency_ms,
+            },
+            "configuration": {
+                "camera": asdict(tracker.cam_config),
+                "environment": asdict(tracker.env_config),
+                "terminals": asdict(tracker.world_model.config),
+                "target": asdict(tracker.target_config),
+                "disturbances": asdict(tracker.disturb_config),
+                "detector": asdict(tracker.det_config),
+                "controller": asdict(tracker.ctrl_config),
+            },
+            "images": [sensor_path.name] + ([world_path.name, split_path.name] if self.video_source is None else []),
+        }
+        metadata_path.write_text(
+            json.dumps(payload, indent=2, default=lambda value: value.value if isinstance(value, Enum) else str(value)) + "\n",
+            encoding="utf-8",
+        )
+        return {"sensor": sensor_path, "metadata": metadata_path, **(
+            {"world": world_path, "split": split_path} if self.video_source is None else {}
+        )}
 
     def _set_playback_speed(self, index):
         self.playback_scale = (0.25, 0.5, 1.0)[index]
@@ -480,7 +592,14 @@ class MainWindow(FluentWindow):
             latency_ms=telemetry.pipeline_latency_ms, error_px=telemetry.current_error_px,
             rms_error_px=telemetry.rms_error_px,
         )
-        self.minimap.update()
+        estimate = self.tracker.last_result.estimate if self.tracker.last_result else None
+        self.minimap.set_tracking_context(
+            self.tracker.canonical_state.value,
+            self.tracker.state_machine.search_scope,
+            (estimate.x_px, estimate.y_px) if estimate is not None else None,
+            (estimate.velocity_x_px_s, estimate.velocity_y_px_s) if estimate is not None else (0.0, 0.0),
+            detection.gate_bbox if detection is not None else None,
+        )
         self.tracking_interface.refresh(detection)
         self.telemetry_bar.update_metrics(
             current_error=telemetry.current_error_px, rms_error=telemetry.rms_error_px,
