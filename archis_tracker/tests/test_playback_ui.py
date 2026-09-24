@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import json
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtTest import QTest
 from archis_tracker.core.config import AtmosphericCondition
 from archis_tracker.ui.main_window import MainWindow
 
@@ -174,3 +175,33 @@ def test_demo_capture_writes_synchronized_views_and_active_config(window):
     assert payload["frame_index"] == window.tracker.frame_index
     assert payload["configuration"]["environment"]["screen_width"] == 2000
     assert payload["images"] == ["sensor_view.png", "world_view.png", "world_sensor.png"]
+
+
+def test_review_has_empty_state_and_refreshes_on_navigation(window, qt_app):
+    review = window.review_interface
+    assert review.review_stack.currentWidget() is review.empty_state
+
+    window.show()
+    window.switchTo(window.tracking_interface)
+    window.tracker.step(1 / 30)
+    window.switchTo(review)
+    qt_app.processEvents()
+    assert review.review_stack.currentWidget() is review.review_text
+    assert "ARCHIS // Optical Tracking Performance Audit" in review.review_text.toPlainText()
+    assert "Not evaluated" in review.review_text.toPlainText()
+
+
+def test_review_actions_fit_minimum_and_default_window_width(window, qt_app):
+    window.show()
+    window.switchTo(window.review_interface)
+    for width in (1160, 1500):
+        window.resize(width, 740)
+        qt_app.processEvents()
+        for button in window.review_interface.action_buttons.values():
+            assert button.width() >= button.sizeHint().width(), (
+                width, button.text(), button.width(), button.sizeHint().width()
+            )
+    # FluentWindow slides between pages; assert visibility after the animation.
+    QTest.qWait(500)
+    for button in window.review_interface.action_buttons.values():
+        assert button.mapTo(window, button.rect().bottomLeft()).y() < window.height()

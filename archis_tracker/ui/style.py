@@ -181,6 +181,15 @@ QStatusBar::item {
 }
 
 /* Review Document */
+QFrame#reviewEmptyState {
+    border: 1px solid #1f2937;
+    border-radius: 8px;
+    background-color: #131922;
+}
+QFrame#reviewEmptyState QLabel {
+    color: #aab6c5;
+    font-size: 14px;
+}
 QTextBrowser#reviewDocument {
     border: 1px solid #1f2937;
     border-radius: 8px;
@@ -191,4 +200,3 @@ QTextBrowser#reviewDocument {
     font-family: "Segoe UI", sans-serif;
 }
 """
-
