@@ -1,4 +1,6 @@
 """Imported frames use the production detector and telemetry path."""
+from pathlib import PurePosixPath
+
 import cv2
 import numpy as np
 
@@ -31,9 +33,11 @@ def test_bgra_still_frames_and_natural_sequence_order(tmp_path):
         image[20:28, 28:36, :3] = value * 20
         assert cv2.imwrite(str(tmp_path / name), image)
     source = ImageSequenceSource(tmp_path)
-    assert [source.read().metadata["path"].split("/")[-1] for _ in range(3)] == [
+    metadata_paths = [source.read().metadata["path"] for _ in range(3)]
+    assert [PurePosixPath(path).name for path in metadata_paths] == [
         "frame1.png", "frame2.png", "frame10.png"
     ]
+    assert all("\\" not in path for path in metadata_paths)
     tracker = TrackingSystem()
     bgra = cv2.imread(str(tmp_path / "frame10.png"), cv2.IMREAD_UNCHANGED)
     tracker.step_external_frame(bgra, 1/30)

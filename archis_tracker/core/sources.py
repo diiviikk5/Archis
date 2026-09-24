@@ -29,7 +29,10 @@ class VideoFrameSource:
         ok, image = self.capture.read()
         if not ok:
             return None
-        packet = FramePacket(self.index, self.index / self.fps, image, "video", {"path": str(self.path)})
+        packet = FramePacket(
+            self.index, self.index / self.fps, image, "video",
+            {"path": self.path.as_posix()},
+        )
         self.index += 1
         return packet
 
@@ -63,7 +66,10 @@ class ImageSequenceSource:
         image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
         if image is None:
             raise FrameSourceError(f"could not decode image: {path}")
-        packet = FramePacket(self.index, self.index / self.fps, image, "images", {"path": str(path)})
+        packet = FramePacket(
+            self.index, self.index / self.fps, image, "images",
+            {"path": path.as_posix()},
+        )
         self.index += 1
         return packet
 
