@@ -215,6 +215,8 @@ class TrackingInterface(QWidget):
 
     def refresh(self, detection):
         tracker = self.window.tracker
+        if hasattr(self.window, "scenario_summary"):
+            self.window.scenario_summary.refresh()
         source = self.window.video_source
         self.source_label.setText(source.path.name if source else "Simulation / sensor feed")
         self.source_label.setToolTip(str(source.path) if source else "Virtual optical sensor")

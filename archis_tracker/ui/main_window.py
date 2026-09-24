@@ -29,6 +29,7 @@ from ..core.video_source import VideoSource, VideoSourceError
 from .control_panel import ControlPanelWidget
 from .onboarding import OnboardingDialog
 from .style import DARK_THEME_QSS, init_fluent_theme
+from .scenario_summary import ScenarioSummaryWidget
 from .workspaces import (
     HomeInterface, SetupInterface, ReviewInterface,
 )
@@ -144,6 +145,19 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.setup_interface, FIF.SETTING, "Mission Setup")
         self.addSubInterface(self.tracking_interface, FIF.CAMERA, "Live Optical Tracking")
         self.addSubInterface(self.review_interface, FIF.DOCUMENT, "Review & Audit")
+
+        # The otherwise unused scroll region in the expanded navigation rail
+        # provides an always-visible, read-only account of what the live engine
+        # is actually running.  Editing remains centralized in Mission Setup.
+        self.scenario_summary = ScenarioSummaryWidget(
+            self, self.navigationInterface.panel
+        )
+        self.navigationInterface.addWidget(
+            routeKey="scenario_summary",
+            widget=self.scenario_summary,
+            position=NavigationItemPosition.SCROLL,
+            tooltip="Active scenario configuration",
+        )
 
         # Bottom navigation utility items
         self.navigationInterface.addItem(
@@ -362,6 +376,7 @@ class MainWindow(FluentWindow):
                 self.tracker.secondary_targets,
                 self.tracker.world_model,
             )
+            self.scenario_summary.refresh(force=True)
             self.show_success_toast("Mission Preset Loaded", f"Configured scenario: {preset.name}")
         except PresetError as exc:
             self.show_warning_toast("Preset Error", str(exc))

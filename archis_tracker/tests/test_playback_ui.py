@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 import pytest
 from PyQt6.QtWidgets import QApplication
+from archis_tracker.core.config import AtmosphericCondition
 from archis_tracker.ui.main_window import MainWindow
 
 
@@ -90,3 +91,38 @@ def test_turbulence_controls_update_live_configuration(window):
     assert config.scintillation_log_std == 0.14
     assert config.illumination_flicker_fraction == 0.07
     assert config.illumination_flicker_hz == 2.5
+
+
+def test_navigation_summary_shows_live_configuration(window):
+    summary = window.scenario_summary
+    assert "Deterministic simulation" in summary.field_text("Input")
+    assert "2000×2000" in summary.field_text("Environment")
+    assert "TX range 1000 m" in summary.field_text("Terminals")
+    assert window.tracker.primary_target.shape.value in summary.field_text("Target")
+    assert window.tracker.detector.config.algorithm.value in summary.field_text("Detector")
+
+
+def test_navigation_summary_refreshes_after_configuration_changes(window):
+    config = window.tracker.disturb_config
+    config.atmospheric_condition = AtmosphericCondition.FOG
+    config.atmospheric_severity = 0.8
+    config.enable_gaussian_noise = True
+    config.gaussian_noise_std = 13.0
+    window.tracker.primary_target.config.range_m = 4250.0
+    window.tracker._refresh_world_snapshot()
+
+    window.scenario_summary.refresh()
+    assert "Fog 80%" in window.scenario_summary.field_text("Environment")
+    assert "Gaussian σ13" in window.scenario_summary.field_text("Disturbances")
+    assert "TX range 4250 m" in window.scenario_summary.field_text("Terminals")
+
+
+def test_navigation_summary_collapses_without_reserving_empty_space(window):
+    summary = window.scenario_summary
+    summary.setCompacted(True)
+    assert summary.size().width() == 40
+    assert summary.size().height() == 36
+    assert summary.content.isHidden()
+    summary.setCompacted(False)
+    assert not summary.content.isHidden()
+    assert summary.size().height() == summary.EXPANDED_HEIGHT
