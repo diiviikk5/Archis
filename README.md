@@ -159,7 +159,7 @@ The seven files under [`docs/benchmarks`](docs/benchmarks) are generated from th
 python -m pytest -q
 ```
 
-The unified suite currently contains **93 passing tests**. The count includes every parameterized case and covers acquisition at the frame center/edges/corners, truth isolation, repeatability, state transitions, CodeLock, controller bounds, preset migration, native-resolution media, truth sidecars, metrics, headless UI startup, estimator outlier rejection, latency compensation, deterministic burst loss, report export, the explicit 3D two-terminal world, and the live active-configuration sidebar.
+The unified suite currently contains **94 passing tests**. The count includes every parameterized case and covers acquisition at the frame center/edges/corners, truth isolation, repeatability, state transitions, CodeLock, controller bounds, preset migration, native-resolution media, truth sidecars, metrics, headless UI startup, estimator outlier rejection, latency compensation, deterministic burst loss, report export, the explicit 3D two-terminal world, and the live active-configuration sidebar.
 
 | Test module | Passing cases | Coverage |
 | --- | ---: | --- |
@@ -173,14 +173,14 @@ The unified suite currently contains **93 passing tests**. The count includes ev
 | `test_gimbal.py` | 2 | Gimbal dynamics and gyro telemetry |
 | `test_optics.py` | 3 | FOV intrinsics and angular geometry |
 | `test_performance_v2.py` | 5 | Truth-based reports, honest truth-free metrics, fingerprints |
-| `test_playback_ui.py` | 8 | Worker pacing, viewport, overlays, capture, live controls and configuration sidebar |
+| `test_playback_ui.py` | 9 | Worker pacing, viewport, overlays, capture, live controls, configuration sidebar and chart legends |
 | `test_presets.py` | 3 | Live preset application, atomic rejection, independent limits |
 | `test_session_report.py` | 1 | Automatic CSV/JSON/HTML session evidence |
 | `test_target.py` | 10 | Shapes, six trajectories, continuity, bounce, zero timestep |
 | `test_telemetry.py` | 4 | Empty runs, loss limits, reacquisition, aggregate telemetry |
 | `test_unified_core.py` | 19 | Contracts, state machine, seeds, truth, CodeLock, new estimator features |
 | `test_world_model.py` | 6 | Explicit terminal poses, relative geometry, physical velocity, decoys, isolation |
-| **Total** | **93** | **All passing** |
+| **Total** | **94** | **All passing** |
 
 <details>
 <summary>Complete passing test inventory</summary>
@@ -243,7 +243,7 @@ The unified suite currently contains **93 passing tests**. The count includes ev
 - `test_identical_seed_runs_have_identical_report_fingerprint`
 - `test_session_writes_csv_json_and_readable_report`
 
-#### Desktop playback and active configuration — 8
+#### Desktop playback and active configuration — 9
 
 - `test_playback_preserves_sensor_period`
 - `test_viewport_uses_actual_frame_dimensions`
@@ -253,6 +253,7 @@ The unified suite currently contains **93 passing tests**. The count includes ev
 - `test_navigation_summary_shows_live_configuration`
 - `test_navigation_summary_refreshes_after_configuration_changes`
 - `test_navigation_summary_collapses_without_reserving_empty_space`
+- `test_all_chart_legends_are_below_the_plot_area`
 
 #### Presets — 3
 

@@ -3,7 +3,8 @@ Archis Optical Tracker - Real-time Telemetry Charts
 High-performance dynamic strip charts using pyqtgraph for tracking error,
 gimbal angles, system frame rates, and Jitter Power Spectral Density (FFT).
 """
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTabWidget
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTabWidget
 import pyqtgraph as pg
 import numpy as np
 from collections import deque
@@ -13,7 +14,9 @@ from typing import Deque
 class TelemetryChartsWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(150)
+        # The extra height is reserved for legends below the axes. Keeping
+        # legends out of the ViewBox prevents labels from covering live data.
+        self.setMinimumHeight(190)
         
         # Configure pyqtgraph global visual styling
         pg.setConfigOption('background', '#191a1c')
@@ -31,7 +34,7 @@ class TelemetryChartsWidget(QWidget):
         self.plot_error.showGrid(x=True, y=True, alpha=0.25)
         self.plot_error.setLabel('left', 'Error', units='px')
         self.plot_error.setLabel('bottom', 'Sim Time', units='s')
-        self.plot_error.addLegend(offset=(10, 10))
+        self._add_bottom_legend(self.plot_error, columns=2)
         self.curve_error = self.plot_error.plot(
             pen=pg.mkPen(color='#38bdf8', width=1.5), name="Pointing offset"
         )
@@ -48,7 +51,7 @@ class TelemetryChartsWidget(QWidget):
         self.plot_gimbal.showGrid(x=True, y=True, alpha=0.25)
         self.plot_gimbal.setLabel('left', 'Angle', units='deg')
         self.plot_gimbal.setLabel('bottom', 'Sim Time', units='s')
-        self.plot_gimbal.addLegend(offset=(10, 10))
+        self._add_bottom_legend(self.plot_gimbal, columns=2)
         self.curve_pan = self.plot_gimbal.plot(pen=pg.mkPen(color='#facc15', width=1.5), name="Pan (Azimuth)")
         self.curve_tilt = self.plot_gimbal.plot(pen=pg.mkPen(color='#a855f7', width=1.5), name="Tilt (Elevation)")
         self.tabs.addTab(self.plot_gimbal, "Gimbal Kinematics")
@@ -58,7 +61,7 @@ class TelemetryChartsWidget(QWidget):
         self.plot_perf.showGrid(x=True, y=True, alpha=0.25)
         self.plot_perf.setLabel('left', 'FPS / Speed')
         self.plot_perf.setLabel('bottom', 'Sim Time', units='s')
-        self.plot_perf.addLegend(offset=(10, 10))
+        self._add_bottom_legend(self.plot_perf, columns=3)
         self.curve_fps = self.plot_perf.plot(pen=pg.mkPen(color='#4ade80', width=1.5), name="Source FPS")
         self.curve_processing_fps = self.plot_perf.plot(
             pen=pg.mkPen(color='#38bdf8', width=1.5), name="Processing FPS"
@@ -71,13 +74,44 @@ class TelemetryChartsWidget(QWidget):
         self.plot_fft.showGrid(x=True, y=True, alpha=0.25)
         self.plot_fft.setLabel('left', 'Power (dB)')
         self.plot_fft.setLabel('bottom', 'Frequency', units='Hz')
-        self.curve_fft = self.plot_fft.plot(pen=pg.mkPen(color='#ec4899', width=1.5), fillLevel=-40, fillBrush=pg.mkBrush(236, 72, 153, 50))
+        self._add_bottom_legend(self.plot_fft, columns=1)
+        self.curve_fft = self.plot_fft.plot(
+            pen=pg.mkPen(color='#ec4899', width=1.5),
+            fillLevel=-40,
+            fillBrush=pg.mkBrush(236, 72, 153, 50),
+            name="Pointing-error spectrum",
+        )
         self.tabs.addTab(self.plot_fft, "Jitter Spectrum (FFT)")
         for plot in (self.plot_error, self.plot_gimbal, self.plot_perf, self.plot_fft):
             plot.setTitle(None)
             plot.showGrid(x=False, y=True, alpha=0.12)
             plot.setMenuEnabled(False)
             plot.hideButtons()
+
+    @staticmethod
+    def _add_bottom_legend(plot: pg.PlotWidget, columns: int) -> pg.LegendItem:
+        """Attach a horizontal legend below the bottom axis, outside the data view."""
+        item = plot.getPlotItem()
+        legend = pg.LegendItem(
+            offset=None,
+            frame=False,
+            colCount=columns,
+            horSpacing=14,
+            verSpacing=0,
+            labelTextColor='#b7bbc1',
+            labelTextSize='9pt',
+        )
+        item.legend = legend
+        item.layout.addItem(
+            legend,
+            4,
+            1,
+            1,
+            1,
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+        )
+        item.layout.setRowSpacing(4, 4)
+        return legend
 
     def clear_data(self):
         for curve in (self.curve_error, self.curve_centroid, self.curve_pan, self.curve_tilt,

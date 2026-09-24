@@ -126,3 +126,17 @@ def test_navigation_summary_collapses_without_reserving_empty_space(window):
     summary.setCompacted(False)
     assert not summary.content.isHidden()
     assert summary.size().height() == summary.EXPANDED_HEIGHT
+
+
+def test_all_chart_legends_are_below_the_plot_area(window):
+    charts = window.tracking_interface.charts
+    expected_labels = (
+        (charts.plot_error, {"Pointing offset", "Centroid error"}),
+        (charts.plot_gimbal, {"Pan (Azimuth)", "Tilt (Elevation)"}),
+        (charts.plot_perf, {"Source FPS", "Processing FPS", "Target Speed (px/s)"}),
+        (charts.plot_fft, {"Pointing-error spectrum"}),
+    )
+    for plot, labels in expected_labels:
+        item = plot.getPlotItem()
+        assert item.layout.itemAt(4, 1) is item.legend
+        assert {label.text for _, label in item.legend.items} == labels
