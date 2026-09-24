@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-24T06:14:21.016867+00:00",
+  "application_version": "2.0.0",
+  "engine_fingerprint": "dddfe241f2cae04eb877fb2cda66009abd9ef2d17df4ea467e9946edec42d95f",
+  "git_head_when_generated": "76072c74e1d0be9fca9cc48d8964e15fb3138392",
+  "benchmark_frames_per_run": 1800,
+  "seeds": [
+    26169,
+    26170,
+    26171
+  ],
+  "host": {
+    "cpu": "Intel(R) Core(TM) i5-1035G1 CPU @ 1.00GHz",
+    "os": "Linux-7.2.5-3-omarchy-x86_64-with-glibc2.44",
+    "machine": "x86_64",
+    "python": "3.14.7",
+    "numpy": "2.5.3",
+    "opencv": "4.14.0"
+  },
+  "throughput_note": "processing_fps is wall-clock and host-dependent; deterministic accuracy fingerprints do not include processing latency"
+}

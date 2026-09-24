@@ -19,6 +19,8 @@ It combines a polished PyQt/Fluent simulator with a deterministic tracking and e
 - Reproducible benchmark, algorithm comparison, stress sweep, and AI calibration commands.
 - PyInstaller one-folder Windows build plus portable ZIP and Inno Setup installer workflow.
 
+`HYBRID` is the production/default detector because it combines robust classical proposals with NanoSpot evidence and temporal checks. `AI_ONNX` remains available as an experimental, deliberately conservative AI-only ablation; it is not the recommended tracking mode and its lower recall must not be presented as production performance.
+
 ## Quick start
 
 Python 3.11 x64 is the reference environment.
@@ -43,6 +45,7 @@ archis compare archis_tracker/presets/nominal_leo.json --output-dir reports/comp
 archis stress-test archis_tracker/presets/heavy_turbulence.json --output-dir reports/stress
 archis analyze input.mp4 --truth truth.csv --output-dir reports/video
 archis train-ai --samples 400 --seed 26169
+python scripts/generate_benchmark_evidence.py --verify
 ```
 
 `track` adds a final frame preview, `record` creates a simulated MP4, and `gui` launches the desktop application. Run `archis --help` or `archis <command> --help` for all options.
@@ -136,17 +139,19 @@ The small centroid/reacquisition differences come from the numerically stable co
 
 ## Current measured matrix
 
-The latest verification run contains 15 runs: five 60-second, 30 Hz scenarios across seeds 26169–26171. These are development-machine measurements, not unseen-video guarantees. The CLI commands above regenerate the per-frame CSV, machine-readable JSON, and HTML evidence.
+The latest verification run contains 15 runs: five 60-second, 30 Hz scenarios across seeds 26169–26171. These are development-machine measurements, not unseen-video guarantees. Accuracy/state results are deterministic for a given source-tree fingerprint and seed; processing FPS is wall-clock and machine-dependent. Full provenance is recorded in [`docs/benchmarks/generated/provenance.json`](docs/benchmarks/generated/provenance.json), and the evidence can be regenerated with `python scripts/generate_benchmark_evidence.py`.
 
-| Scenario | Acquisition | Centroid RMSE | Pointing RMSE | Worst loss | Reacquisition | Strict result |
-| --- | ---: | ---: | ---: | ---: | ---: | --- |
-| Nominal LEO | 0.10 s | 0.023–0.028 px | 2.86–2.89 px | 0.00% | n/a | Pass |
-| Evasive target | 0.10 s | 0.027–0.029 px | 3.03–3.25 px | 0.00% | n/a | Pass |
-| Heavy turbulence | 0.10 s | 0.247–0.253 px | 1.00 px | 0.00% | n/a | Pass |
-| Cloud dropout | 0.10 s | 0.098–0.099 px | 0.961–0.965 px | 0.50% | 0.30 s | Pass |
-| Platform jitter | 0.10 s | 0.025–0.036 px | 12.99–13.15 px | 0.00% | n/a | **Pointing gate miss** |
+| Scenario | Acquisition | Centroid RMSE | Pointing RMSE | Worst loss | Reacquisition | Accuracy/control verdict | Host FPS |
+| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: |
+| Nominal LEO | 0.10 s | 0.023–0.028 px | 2.86–2.89 px | 0.00% | n/a | Pass | 113.4–149.2 |
+| Evasive target | 0.10 s | 0.027–0.029 px | 3.03–3.25 px | 0.00% | n/a | Pass | 112.1–141.7 |
+| Heavy turbulence | 0.10 s | **2.554–2.583 px** | **3.109–3.158 px** | 0.00% | n/a | Pass | **17.8–27.9** |
+| Cloud dropout | 0.10 s | 0.098–0.099 px | 0.961–0.965 px | 0.50% | 0.30 s | Pass | 127.7–129.3 |
+| Platform jitter | 0.10 s | 0.025–0.036 px | 12.99–13.15 px | 0.00% | n/a | **Pointing gate miss** | 131.9–147.3 |
 
-Twelve of the 15 strict runs passed; the three misses were all the platform-jitter pointing gate. Measured processing throughput ranged from 74.8 to 333.0 FPS on the development machine. Platform jitter demonstrates why centroid accuracy and closed-loop pointing accuracy are reported separately: detection remained accurate, but the camera offset exceeded the strict 10 px gate.
+Twelve of the 15 runs passed every deterministic accuracy/control gate; the three misses were all the platform-jitter pointing gate. On the recorded development host, 11 of 15 runs also passed the host-dependent ≥20 FPS gate: one heavy-turbulence run measured 17.8 FPS. Heavy turbulence is therefore **not** claimed as a universal strict pass. Platform jitter demonstrates why centroid accuracy and closed-loop pointing accuracy are reported separately: detection remained accurate, but camera offset exceeded the strict 10 px gate.
+
+The seven files under [`docs/benchmarks`](docs/benchmarks) are generated from this matrix and a real sensor-noise sweep, rather than hand-written tables. CI and the Windows release build run `python scripts/generate_benchmark_evidence.py --verify`; it fails if engine/preset/model inputs change, if a generated report is edited, if the matrix does not contain exactly 15 truth-scored runs, or if per-frame reports use an old schema.
 
 ## Tests
 
@@ -154,7 +159,7 @@ Twelve of the 15 strict runs passed; the three misses were all the platform-jitt
 python -m pytest -q
 ```
 
-The unified suite currently contains **84 passing tests**. The count includes every parameterized case and covers acquisition at the frame center/edges/corners, truth isolation, repeatability, state transitions, CodeLock, controller bounds, preset migration, native-resolution media, truth sidecars, metrics, headless UI startup, estimator outlier rejection, latency compensation, deterministic burst loss, and report export.
+The unified suite currently contains **93 passing tests**. The count includes every parameterized case and covers acquisition at the frame center/edges/corners, truth isolation, repeatability, state transitions, CodeLock, controller bounds, preset migration, native-resolution media, truth sidecars, metrics, headless UI startup, estimator outlier rejection, latency compensation, deterministic burst loss, report export, the explicit 3D two-terminal world, and the live active-configuration sidebar.
 
 | Test module | Passing cases | Coverage |
 | --- | ---: | --- |
@@ -168,13 +173,14 @@ The unified suite currently contains **84 passing tests**. The count includes ev
 | `test_gimbal.py` | 2 | Gimbal dynamics and gyro telemetry |
 | `test_optics.py` | 3 | FOV intrinsics and angular geometry |
 | `test_performance_v2.py` | 5 | Truth-based reports, honest truth-free metrics, fingerprints |
-| `test_playback_ui.py` | 5 | Worker pacing, native viewport size, overlays, capture, controls |
+| `test_playback_ui.py` | 8 | Worker pacing, viewport, overlays, capture, live controls and configuration sidebar |
 | `test_presets.py` | 3 | Live preset application, atomic rejection, independent limits |
 | `test_session_report.py` | 1 | Automatic CSV/JSON/HTML session evidence |
 | `test_target.py` | 10 | Shapes, six trajectories, continuity, bounce, zero timestep |
 | `test_telemetry.py` | 4 | Empty runs, loss limits, reacquisition, aggregate telemetry |
 | `test_unified_core.py` | 19 | Contracts, state machine, seeds, truth, CodeLock, new estimator features |
-| **Total** | **84** | **All passing** |
+| `test_world_model.py` | 6 | Explicit terminal poses, relative geometry, physical velocity, decoys, isolation |
+| **Total** | **93** | **All passing** |
 
 <details>
 <summary>Complete passing test inventory</summary>
@@ -237,13 +243,16 @@ The unified suite currently contains **84 passing tests**. The count includes ev
 - `test_identical_seed_runs_have_identical_report_fingerprint`
 - `test_session_writes_csv_json_and_readable_report`
 
-#### Desktop playback — 5
+#### Desktop playback and active configuration — 8
 
 - `test_playback_preserves_sensor_period`
 - `test_viewport_uses_actual_frame_dimensions`
 - `test_overlay_controls_do_not_change_sensor_frame`
 - `test_capture_writes_real_frame`
 - `test_turbulence_controls_update_live_configuration`
+- `test_navigation_summary_shows_live_configuration`
+- `test_navigation_summary_refreshes_after_configuration_changes`
+- `test_navigation_summary_collapses_without_reserving_empty_space`
 
 #### Presets — 3
 
@@ -292,6 +301,15 @@ The unified suite currently contains **84 passing tests**. The count includes ev
 - `test_kalman_rejects_statistical_outlier_and_preserves_covariance_health`
 - `test_kinematic_prediction_and_latency_compensated_aimpoint`
 - `test_scenario_builds_burst_loss_and_latency_compensation`
+
+#### Explicit 3D terminal world — 6
+
+- `test_centered_terminals_have_explicit_3d_pose_range_and_orientation`
+- `test_gimbal_boresight_and_fov_use_relative_3d_angles`
+- `test_receiver_and_transmitter_publish_physical_velocity`
+- `test_multiple_decoys_become_distinct_3d_terminal_states`
+- `test_tracking_system_keeps_world_snapshot_out_of_detector_inputs`
+- `test_scenario_configures_and_validates_physical_terminal_geometry`
 
 </details>
 

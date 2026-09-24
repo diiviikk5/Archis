@@ -15,3 +15,5 @@ jobs:
         run: pip install ".[test]"
       - name: Run unit tests
         run: pytest archis_tracker/tests -v
+      - name: Reject stale benchmark evidence
+        run: python scripts/generate_benchmark_evidence.py --verify

@@ -5,6 +5,7 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements-windows.lock
 python -m pip install -e . --no-deps
 python -m pytest
+python scripts/generate_benchmark_evidence.py --verify
 python -m PyInstaller ArchisOpticalTracker.spec --clean --noconfirm
 $SmokeDir = Join-Path $env:TEMP "ArchisTracker-Smoke-$PID"
 New-Item -ItemType Directory -Force $SmokeDir | Out-Null

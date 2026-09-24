@@ -13,3 +13,5 @@ jobs:
         run: pip install ".[test]"
       - name: Run verification audit
         run: archis benchmark archis_tracker/presets/nominal_leo.json --frames 300 --output-dir reports/ci
+      - name: Verify committed evidence matches the engine
+        run: python scripts/generate_benchmark_evidence.py --verify
