@@ -14,6 +14,8 @@ class DisturbanceEngine:
         self.config = config or DisturbanceConfig()
         self.time_elapsed: float = 0.0
         self.rng = np.random.default_rng(self.config.random_seed)
+        self._dropout_rng = np.random.default_rng(self.config.random_seed ^ 0x4C4F5353)
+        self._burst_dropout_active = False
         self._coordinate_grids: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
         self._turbulence_bases: dict[tuple[int, int], tuple[np.ndarray, ...]] = {}
         phase_rng = np.random.default_rng(self.config.random_seed ^ 0x54555242)
@@ -33,6 +35,8 @@ class DisturbanceEngine:
     def reset(self) -> None:
         self.time_elapsed = 0.0
         self.rng = np.random.default_rng(self.config.random_seed)
+        self._dropout_rng = np.random.default_rng(self.config.random_seed ^ 0x4C4F5353)
+        self._burst_dropout_active = False
         self._coordinate_grids.clear()
         self._turbulence_bases.clear()
         phase_rng = np.random.default_rng(self.config.random_seed ^ 0x54555242)
@@ -74,6 +78,7 @@ class DisturbanceEngine:
             ((jitter_x, jitter_y), (platform_x, platform_y)) in pixels per frame.
         """
         self.time_elapsed += dt
+        self._update_burst_dropout(dt)
         t = self.time_elapsed
         
         # 1. Camera Jitter (+- 20 pixels / frame max)
@@ -123,6 +128,30 @@ class DisturbanceEngine:
             self.rain_x[wrap] = self.rng.uniform(0, 640, np.sum(wrap))
             
         return (jitter_x, jitter_y), (plat_x, plat_y)
+
+    def _update_burst_dropout(self, dt: float) -> None:
+        """Advance a deterministic two-state continuous-time loss process."""
+        if not self.config.dropout_burst_enabled:
+            self._burst_dropout_active = False
+            return
+        mean_dwell = (
+            self.config.dropout_mean_loss_s
+            if self._burst_dropout_active
+            else self.config.dropout_mean_clear_s
+        )
+        mean_dwell = max(1e-6, float(mean_dwell))
+        transition_probability = 1.0 - np.exp(-max(0.0, float(dt)) / mean_dwell)
+        if self._dropout_rng.random() < transition_probability:
+            self._burst_dropout_active = not self._burst_dropout_active
+
+    def is_dropout_active(self) -> bool:
+        """Return scheduled or burst signal-loss state for the current frame."""
+        scheduled = (
+            self.config.dropout_enabled
+            and self.config.dropout_start_s <= self.time_elapsed
+            < self.config.dropout_start_s + self.config.dropout_duration_s
+        )
+        return bool(scheduled or self._burst_dropout_active)
 
     def apply_disturbances_to_frame(self, frame: np.ndarray) -> np.ndarray:
         """

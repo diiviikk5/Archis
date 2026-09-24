@@ -159,6 +159,12 @@ class DisturbanceConfig:
     dropout_enabled: bool = False
     dropout_start_s: float = 0.0
     dropout_duration_s: float = 0.0
+    # Optional two-state burst-loss channel.  Transition probabilities are
+    # derived from these mean dwell times, making the model independent of
+    # the configured sensor frame rate while remaining repeatable by seed.
+    dropout_burst_enabled: bool = False
+    dropout_mean_clear_s: float = 8.0
+    dropout_mean_loss_s: float = 0.25
 
 
 @dataclass
@@ -178,6 +184,9 @@ class ControllerConfig:
     feedforward_gain: float = 0.8
     feedforward_smoothing: float = 0.1
     max_feedforward_rate_deg_s: float = 4.0
+    # Known sensor/processing/actuator delay.  The tracker projects the
+    # filtered kinematic state by this horizon before computing the command.
+    latency_compensation_s: float = 0.0
     
     # Re-acquisition spiral search
     search_spiral_speed: float = 3.0  # deg/s
@@ -215,3 +224,7 @@ class DetectorConfig:
     code_lock_pattern: Optional[str] = None
     code_lock_symbol_frames: int = 1
     code_lock_minimum_correlation: float = 0.70
+    # A deliberately wide second-stage sanity gate protects the estimator
+    # from catastrophic jumps without duplicating the detector's stricter
+    # 99% candidate-association gate or rejecting aggressive manoeuvres.
+    kalman_gate_threshold_chi2: float = 10000.0

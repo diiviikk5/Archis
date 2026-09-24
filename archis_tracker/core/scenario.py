@@ -39,10 +39,19 @@ DEFAULT_SCENARIO: dict[str, Any] = {
         "gaussian_noise_std": 0.0, "salt_pepper_fraction": 0.0,
         "camera_jitter_max_px": 0.0, "platform_motion": "None",
         "platform_motion_max_px": 0.0,
-        "dropout": {"enabled": False, "start_s": 0.0, "duration_s": 0.0},
+        "dropout": {
+            "enabled": False, "start_s": 0.0, "duration_s": 0.0,
+            "burst_enabled": False, "mean_clear_s": 8.0, "mean_loss_s": 0.25,
+        },
     },
-    "detector": {"algorithm": "HYBRID", "code_lock": None},
-    "controller": {"coast_timeout_s": 0.4, "local_reacquire_timeout_s": 0.6},
+    "detector": {
+        "algorithm": "HYBRID", "code_lock": None,
+        "innovation_gate_chi2": 10000.0,
+    },
+    "controller": {
+        "coast_timeout_s": 0.4, "local_reacquire_timeout_s": 0.6,
+        "latency_compensation_s": 0.0,
+    },
     "evaluation": {"duration_s": 60.0, "random_seed": 26169},
 }
 
@@ -126,6 +135,7 @@ def validate_scenario(raw: Any) -> dict[str, Any]:
     _number(disturbance.get("camera_jitter_max_px", 0), "disturbances.camera_jitter_max_px", 0, 100)
     _number(disturbance.get("platform_motion_max_px", 0), "disturbances.platform_motion_max_px", 0, 100)
     _enum_value(str(detector.get("algorithm", "HYBRID")).upper(), TrackingAlgorithm, "detector.algorithm", by_name=True)
+    _number(detector.get("innovation_gate_chi2", 10000), "detector.innovation_gate_chi2", 1, 1000000)
     code_lock = detector.get("code_lock")
     if code_lock is not None:
         code_lock = _mapping(code_lock, "detector.code_lock")
@@ -136,14 +146,19 @@ def validate_scenario(raw: Any) -> dict[str, Any]:
         _number(code_lock.get("minimum_correlation", .7), "detector.code_lock.minimum_correlation", 0, 1)
     _number(controller.get("coast_timeout_s", .4), "controller.coast_timeout_s", 0, 60)
     _number(controller.get("local_reacquire_timeout_s", .6), "controller.local_reacquire_timeout_s", 0, 60)
+    _number(controller.get("latency_compensation_s", 0), "controller.latency_compensation_s", 0, 2)
     _number(evaluation.get("duration_s"), "evaluation.duration_s", 0.01, 86400)
     if isinstance(evaluation.get("random_seed"), bool) or not isinstance(evaluation.get("random_seed"), int):
         raise ScenarioError("evaluation.random_seed must be an integer")
     dropout = disturbance.get("dropout", {})
     if not isinstance(dropout, dict):
         raise ScenarioError("disturbances.dropout must be an object")
+    _boolean_value(dropout.get("enabled", False), "disturbances.dropout.enabled")
+    _boolean_value(dropout.get("burst_enabled", False), "disturbances.dropout.burst_enabled")
     _number(dropout.get("start_s", 0), "disturbances.dropout.start_s", 0, 86400)
     _number(dropout.get("duration_s", 0), "disturbances.dropout.duration_s", 0, 86400)
+    _number(dropout.get("mean_clear_s", 8), "disturbances.dropout.mean_clear_s", 0.001, 86400)
+    _number(dropout.get("mean_loss_s", .25), "disturbances.dropout.mean_loss_s", 0.001, 86400)
     return data
 
 
@@ -193,6 +208,12 @@ def _number(value: Any, name: str, low: float, high: float) -> float:
 def _integer(value: Any, name: str, low: int, high: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
         raise ScenarioError(f"{name} must be an integer between {low} and {high}")
+    return value
+
+
+def _boolean_value(value: Any, name: str) -> bool:
+    if not isinstance(value, bool):
+        raise ScenarioError(f"{name} must be true or false")
     return value
 
 
@@ -295,10 +316,14 @@ def tracker_from_scenario(scenario: Scenario):
         dropout_enabled=bool(dropout.get("enabled", False)),
         dropout_start_s=float(dropout.get("start_s", 0)),
         dropout_duration_s=float(dropout.get("duration_s", 0)),
+        dropout_burst_enabled=bool(dropout.get("burst_enabled", False)),
+        dropout_mean_clear_s=float(dropout.get("mean_clear_s", 8.0)),
+        dropout_mean_loss_s=float(dropout.get("mean_loss_s", 0.25)),
     )
     ctrl_config = ControllerConfig(
         coast_timeout_s=float(controller.get("coast_timeout_s", 0.4)),
         local_reacquire_timeout_s=float(controller.get("local_reacquire_timeout_s", 0.6)),
+        latency_compensation_s=float(controller.get("latency_compensation_s", 0.0)),
     )
     code_lock = detector.get("code_lock") or {}
     det_config = DetectorConfig(
@@ -306,6 +331,7 @@ def tracker_from_scenario(scenario: Scenario):
         code_lock_pattern=code_lock.get("pattern"),
         code_lock_symbol_frames=int(code_lock.get("symbol_frames", 1)),
         code_lock_minimum_correlation=float(code_lock.get("minimum_correlation", 0.70)),
+        kalman_gate_threshold_chi2=float(detector.get("innovation_gate_chi2", 10000.0)),
     )
     tracker = TrackingSystem(cam_config, env_config, target_config, disturb_config, ctrl_config, det_config)
     for decoy_data in configured_targets[1:]:
