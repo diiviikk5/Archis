@@ -9,6 +9,32 @@ from typing import Tuple, Optional
 from .config import DisturbanceConfig, AtmosphericCondition, PlatformMotionType
 
 
+def gamma_gamma_parameters(rytov_variance: float) -> tuple[float, float]:
+    """Return small- and large-scale Gamma-Gamma shape parameters.
+
+    The input is the Rytov variance (not its square root). Values near zero
+    approach a deterministic unity gain and are represented by large finite
+    shape parameters for stable sampling.
+    """
+    variance = max(0.0, float(rytov_variance))
+    if variance <= 1e-9:
+        return 1e9, 1e9
+    power = variance ** 1.2
+    alpha_term = np.exp(0.49 * variance / (1.0 + 1.11 * power) ** (7.0 / 6.0)) - 1.0
+    beta_term = np.exp(0.51 * variance / (1.0 + 0.69 * power) ** (5.0 / 6.0)) - 1.0
+    return 1.0 / max(alpha_term, 1e-9), 1.0 / max(beta_term, 1e-9)
+
+
+def sample_gamma_gamma_gain(rng: np.random.Generator, rytov_variance: float) -> float:
+    """Sample unit-mean irradiance gain from a Gamma-Gamma channel."""
+    alpha, beta = gamma_gamma_parameters(rytov_variance)
+    if alpha >= 1e8 or beta >= 1e8:
+        return 1.0
+    large_scale = rng.gamma(alpha, 1.0 / alpha)
+    small_scale = rng.gamma(beta, 1.0 / beta)
+    return float(large_scale * small_scale)
+
+
 class DisturbanceEngine:
     def __init__(self, config: Optional[DisturbanceConfig] = None):
         self.config = config or DisturbanceConfig()
@@ -233,7 +259,9 @@ class DisturbanceEngine:
             img = cv2.GaussianBlur(img, (0, 0), sigmaX=blur_sigma, sigmaY=blur_sigma)
 
         scintillation = float(np.clip(self.config.scintillation_log_std, 0.0, 1.5))
-        if scintillation > 0.0:
+        if self.config.scintillation_model == "gamma_gamma" and self.config.rytov_variance > 0.0:
+            img *= sample_gamma_gamma_gain(self.rng, self.config.rytov_variance)
+        elif scintillation > 0.0:
             # exp(N(-sigma^2/2, sigma)) is log-normal with E[gain] = 1.
             gain = np.exp(self.rng.normal(-0.5 * scintillation**2, scintillation))
             img *= float(gain)

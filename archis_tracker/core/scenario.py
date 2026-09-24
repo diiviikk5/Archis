@@ -40,7 +40,8 @@ DEFAULT_SCENARIO: dict[str, Any] = {
     "disturbances": {
         "atmosphere": "Clear", "atmosphere_strength": 0.0,
         "turbulence_warp_px": 0.0, "turbulence_blur_sigma_px": 0.0,
-        "scintillation_log_std": 0.0,
+        "scintillation_log_std": 0.0, "scintillation_model": "lognormal",
+        "rytov_variance": 0.0,
         "illumination_flicker_fraction": 0.0, "illumination_flicker_hz": 3.0,
         "gaussian_noise_std": 0.0, "salt_pepper_fraction": 0.0,
         "camera_jitter_max_px": 0.0, "platform_motion": "None",
@@ -53,6 +54,11 @@ DEFAULT_SCENARIO: dict[str, Any] = {
     "detector": {
         "algorithm": "HYBRID", "code_lock": None,
         "innovation_gate_chi2": 10000.0,
+        "scale_relative_geometry": True, "fallback_fwhm_px": 8.0,
+        "minimum_fwhm_px": 2.0, "maximum_fwhm_px": 32.0,
+        "measurement_noise_calibration": 14.2,
+        "measurement_noise_floor_px": 0.15,
+        "measurement_noise_ceiling_px": 20.0,
     },
     "controller": {
         "coast_timeout_s": 0.4, "local_reacquire_timeout_s": 0.6,
@@ -138,6 +144,10 @@ def validate_scenario(raw: Any) -> dict[str, Any]:
     _number(disturbance.get("turbulence_warp_px", 0), "disturbances.turbulence_warp_px", 0, 50)
     _number(disturbance.get("turbulence_blur_sigma_px", 0), "disturbances.turbulence_blur_sigma_px", 0, 20)
     _number(disturbance.get("scintillation_log_std", 0), "disturbances.scintillation_log_std", 0, 1.5)
+    scintillation_model = str(disturbance.get("scintillation_model", "lognormal")).lower()
+    if scintillation_model not in {"lognormal", "gamma_gamma"}:
+        raise ScenarioError("disturbances.scintillation_model must be lognormal or gamma_gamma")
+    _number(disturbance.get("rytov_variance", 0), "disturbances.rytov_variance", 0, 5)
     _number(disturbance.get("illumination_flicker_fraction", 0), "disturbances.illumination_flicker_fraction", 0, .95)
     _number(disturbance.get("illumination_flicker_hz", 3), "disturbances.illumination_flicker_hz", 0, 100)
     _number(disturbance.get("gaussian_noise_std", 0), "disturbances.gaussian_noise_std", 0, 100)
@@ -146,6 +156,17 @@ def validate_scenario(raw: Any) -> dict[str, Any]:
     _number(disturbance.get("platform_motion_max_px", 0), "disturbances.platform_motion_max_px", 0, 100)
     _enum_value(str(detector.get("algorithm", "HYBRID")).upper(), TrackingAlgorithm, "detector.algorithm", by_name=True)
     _number(detector.get("innovation_gate_chi2", 10000), "detector.innovation_gate_chi2", 1, 1000000)
+    _boolean_value(detector.get("scale_relative_geometry", True), "detector.scale_relative_geometry")
+    minimum_fwhm = _number(detector.get("minimum_fwhm_px", 2), "detector.minimum_fwhm_px", .5, 128)
+    fallback_fwhm = _number(detector.get("fallback_fwhm_px", 8), "detector.fallback_fwhm_px", .5, 128)
+    maximum_fwhm = _number(detector.get("maximum_fwhm_px", 32), "detector.maximum_fwhm_px", .5, 128)
+    if not minimum_fwhm <= fallback_fwhm <= maximum_fwhm:
+        raise ScenarioError("detector FWHM values must satisfy minimum <= fallback <= maximum")
+    _number(detector.get("measurement_noise_calibration", 14.2), "detector.measurement_noise_calibration", .01, 20)
+    noise_floor = _number(detector.get("measurement_noise_floor_px", .15), "detector.measurement_noise_floor_px", .01, 100)
+    noise_ceiling = _number(detector.get("measurement_noise_ceiling_px", 20), "detector.measurement_noise_ceiling_px", .01, 100)
+    if noise_floor > noise_ceiling:
+        raise ScenarioError("detector measurement-noise floor cannot exceed its ceiling")
     code_lock = detector.get("code_lock")
     if code_lock is not None:
         code_lock = _mapping(code_lock, "detector.code_lock")
@@ -196,6 +217,8 @@ def _migrate_legacy(raw: Mapping[str, Any]) -> dict[str, Any]:
         "turbulence_warp_px": disturbances.get("turbulence_warp_px", 0.0),
         "turbulence_blur_sigma_px": disturbances.get("turbulence_blur_sigma_px", 0.0),
         "scintillation_log_std": disturbances.get("scintillation_log_std", 0.0),
+        "scintillation_model": disturbances.get("scintillation_model", "lognormal"),
+        "rytov_variance": disturbances.get("rytov_variance", 0.0),
         "illumination_flicker_fraction": disturbances.get("illumination_flicker_fraction", 0.0),
         "illumination_flicker_hz": disturbances.get("illumination_flicker_hz", 3.0),
         "gaussian_noise_std": disturbances.get("gaussian_noise_std", 0.0) if disturbances.get("enable_gaussian_noise") else 0.0,
@@ -343,6 +366,8 @@ def tracker_from_scenario(scenario: Scenario):
         turbulence_warp_px=float(disturbance.get("turbulence_warp_px", 0)),
         turbulence_blur_sigma_px=float(disturbance.get("turbulence_blur_sigma_px", 0)),
         scintillation_log_std=float(disturbance.get("scintillation_log_std", 0)),
+        scintillation_model=str(disturbance.get("scintillation_model", "lognormal")).lower(),
+        rytov_variance=float(disturbance.get("rytov_variance", 0)),
         illumination_flicker_fraction=float(disturbance.get("illumination_flicker_fraction", 0)),
         illumination_flicker_hz=float(disturbance.get("illumination_flicker_hz", 3)),
         enable_platform_motion=platform != PlatformMotionType.NONE,
@@ -367,6 +392,13 @@ def tracker_from_scenario(scenario: Scenario):
         code_lock_symbol_frames=int(code_lock.get("symbol_frames", 1)),
         code_lock_minimum_correlation=float(code_lock.get("minimum_correlation", 0.70)),
         kalman_gate_threshold_chi2=float(detector.get("innovation_gate_chi2", 10000.0)),
+        enable_scale_relative_geometry=bool(detector.get("scale_relative_geometry", True)),
+        fallback_fwhm_px=float(detector.get("fallback_fwhm_px", 8.0)),
+        minimum_fwhm_px=float(detector.get("minimum_fwhm_px", 2.0)),
+        maximum_fwhm_px=float(detector.get("maximum_fwhm_px", 32.0)),
+        measurement_noise_calibration=float(detector.get("measurement_noise_calibration", 14.2)),
+        measurement_noise_floor_px=float(detector.get("measurement_noise_floor_px", .15)),
+        measurement_noise_ceiling_px=float(detector.get("measurement_noise_ceiling_px", 20.0)),
     )
     tracker = TrackingSystem(
         cam_config, env_config, target_config, disturb_config, ctrl_config, det_config,

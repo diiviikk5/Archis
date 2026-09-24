@@ -12,13 +12,15 @@ import hashlib
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="archis", description="Archis FSOC tracking laboratory")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("validate", "simulate", "track", "record", "benchmark", "compare", "stress-test"):
+    for name in ("validate", "simulate", "track", "record", "benchmark", "compare", "stress-test", "velocity-envelope"):
         item = commands.add_parser(name)
         item.add_argument("scenario", help="scenario or legacy preset JSON")
         if name in {"simulate", "track", "record", "benchmark"}:
             item.add_argument("--frames", type=int, default=0, help="zero uses scenario duration")
-        if name in {"simulate", "track", "benchmark", "compare", "stress-test"}:
+        if name in {"simulate", "track", "benchmark", "compare", "stress-test", "velocity-envelope"}:
             item.add_argument("--output-dir", default=f"reports/{name}")
+        if name == "velocity-envelope":
+            item.add_argument("--frames", type=int, default=300, help="frames evaluated per speed")
         if name == "record":
             item.add_argument("output", help="output MP4")
     analyze = commands.add_parser("analyze")
@@ -36,6 +38,9 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--samples", type=int, default=400)
     train.add_argument("--seed", type=int, default=26169)
     train.add_argument("--output", help="calibration JSON (defaults to writable Archis application data)")
+    optics = commands.add_parser("validate-optics")
+    optics.add_argument("--seed", type=int, default=26169)
+    optics.add_argument("--output-dir", default="reports/optical-validation")
     commands.add_parser("gui")
     return parser
 
@@ -48,6 +53,15 @@ def main(argv: list[str] | None = None) -> int:
         return _analyze(args)
     if args.command == "train-ai":
         return _calibrate_ai(args)
+    if args.command == "validate-optics":
+        from .core.validation import write_optical_validation
+        if args.seed < 0:
+            print("Input error: --seed cannot be negative", file=sys.stderr)
+            return 2
+        paths = write_optical_validation(args.output_dir, seed=args.seed)
+        for kind, path in paths.items():
+            print(f"{kind.upper()}: {path}")
+        return 0
     from .core.scenario import ScenarioError, load_scenario
     try:
         scenario = load_scenario(args.scenario)
@@ -69,6 +83,16 @@ def main(argv: list[str] | None = None) -> int:
         return _compare(scenario, args)
     if args.command == "stress-test":
         return _stress(scenario, args)
+    if args.command == "velocity-envelope":
+        from .core.validation import write_velocity_envelope
+        try:
+            paths = write_velocity_envelope(scenario, args.output_dir, frames=args.frames)
+        except ValueError as exc:
+            print(f"Input error: {exc}", file=sys.stderr)
+            return 2
+        for kind, path in paths.items():
+            print(f"{kind.upper()}: {path}")
+        return 0
     return 2
 
 

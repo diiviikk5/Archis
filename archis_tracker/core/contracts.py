@@ -53,6 +53,11 @@ class Detection:
     algorithm: str = "classical"
     ai_score: float | None = None
     identity_score: float | None = None
+    fwhm_px: float | None = None
+    snr_aperture: float | None = None
+    snr_peak: float | None = None
+    clipped: bool = False
+    saturated_fraction: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)

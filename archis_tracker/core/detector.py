@@ -9,6 +9,7 @@ from typing import Tuple, Optional, List, Dict, Any
 from .config import TrackingAlgorithm, AGCMode, DetectorConfig
 from .association import DataAssociator
 from .ai_detector import NanoSpotDetector
+from .photometry import SpotPhotometry, measure_spot
 
 
 class DetectionResult:
@@ -19,7 +20,12 @@ class DetectionResult:
                  snr_db: float = 0.0, algorithm_used: str = "IWC",
                  heatmap: Optional[np.ndarray] = None,
                  is_decoy: bool = False,
-                 heatmap_bbox: Optional[Tuple[int, int, int, int]] = None):
+                 heatmap_bbox: Optional[Tuple[int, int, int, int]] = None,
+                 fwhm_px: Optional[float] = None,
+                 snr_aperture: Optional[float] = None,
+                 snr_peak: Optional[float] = None,
+                 clipped: bool = False,
+                 saturated_fraction: float = 0.0):
         self.detected = detected
         self.x = x  # Sub-pixel continuous coordinates in viewport (0 to 640)
         self.y = y  # (0 to 480)
@@ -32,6 +38,15 @@ class DetectionResult:
         self.heatmap = heatmap
         self.is_decoy = is_decoy
         self.heatmap_bbox = heatmap_bbox
+        self.fwhm_px = fwhm_px
+        self.snr_aperture = snr_aperture
+        self.snr_peak = snr_peak
+        self.clipped = clipped
+        self.saturated_fraction = saturated_fraction
+
+    @property
+    def saturated(self) -> bool:
+        return self.saturated_fraction > 0.05
 
 
 class BeaconDetector:
@@ -39,6 +54,7 @@ class BeaconDetector:
         self.config = config or DetectorConfig()
         self.associator = DataAssociator(gate_threshold_chi2=9.21)
         self.ai_detector = NanoSpotDetector()
+        self.spot_scale_px = float(self.config.fallback_fwhm_px)
         
         # Stored target template for Correlation Tracking (NCC)
         self.target_template: Optional[np.ndarray] = None
@@ -67,6 +83,11 @@ class BeaconDetector:
         self.last_candidates = []
         h, w = frame.shape
         agc_frame = self.apply_agc(frame)
+        photometry_frame = cv2.medianBlur(agc_frame, 3)
+        photometry_background = float(np.median(photometry_frame))
+        photometry_residual = np.maximum(
+            photometry_frame.astype(np.float32) - photometry_background, 0.0
+        )
         
         # 1. Determine Search Region (Track Gate vs Full Viewport)
         gate_box = None
@@ -75,7 +96,8 @@ class BeaconDetector:
         
         if self.config.enable_track_gate and predicted_pos is not None:
             px, py = predicted_pos
-            g_sz = self.config.gate_size_px
+            scale_gate = int(np.ceil(8.0 * self.spot_scale_px))
+            g_sz = max(self.config.gate_size_px, scale_gate)
             # Ensure gate center stays inside frame
             gx1 = max(0, int(px - g_sz / 2.0))
             gy1 = max(0, int(py - g_sz / 2.0))
@@ -143,6 +165,10 @@ class BeaconDetector:
                 mean_bg, std_bg = cv2.meanStdDev(ai_input_patch)
                 snr_db = float(20.0 * np.log10(max(1.0, peak_val - float(mean_bg[0][0])) / max(1.0, float(std_bg[0][0]))))
 
+                photo = self._measure_photometry(
+                    photometry_frame, photometry_residual,
+                    (final_x, final_y), (gbx, gby, bw, bh),
+                )
                 return DetectionResult(
                     detected=True,
                     x=final_x,
@@ -155,7 +181,12 @@ class BeaconDetector:
                     algorithm_used=TrackingAlgorithm.AI_ONNX.value,
                     heatmap=heatmap,
                     heatmap_bbox=heatmap_box,
-                    is_decoy=is_decoy
+                    is_decoy=is_decoy,
+                    fwhm_px=photo.fwhm_px,
+                    snr_aperture=photo.snr_aperture,
+                    snr_peak=photo.snr_peak,
+                    clipped=photo.clipped,
+                    saturated_fraction=photo.saturated_fraction,
                 )
             else:
                 return DetectionResult(
@@ -169,7 +200,8 @@ class BeaconDetector:
                 )
 
         # 2. Noise suppression pre-filter
-        filtered = cv2.medianBlur(search_frame, 3)
+        filtered = photometry_frame[crop_y0:crop_y0 + search_frame.shape[0],
+                                    crop_x0:crop_x0 + search_frame.shape[1]]
         sh, sw = filtered.shape
         
         # 3. Robust full-frame proposal: median/MAD intensity threshold plus
@@ -188,8 +220,13 @@ class BeaconDetector:
             dynamic_thresh = min(dynamic_thresh, percentile)
         dynamic_thresh = min(254.0, dynamic_thresh)
         _, intensity_mask = cv2.threshold(filtered, dynamic_thresh, 255, cv2.THRESH_BINARY)
-        small = cv2.GaussianBlur(filtered, (0, 0), 0.8)
-        large = cv2.GaussianBlur(filtered, (0, 0), 2.4)
+        if self.config.enable_scale_relative_geometry:
+            dog_small_sigma = float(np.clip(self.spot_scale_px / 8.0, 0.8, 2.5))
+            dog_large_sigma = 3.0 * dog_small_sigma
+        else:
+            dog_small_sigma, dog_large_sigma = 0.8, 2.4
+        small = cv2.GaussianBlur(filtered, (0, 0), dog_small_sigma)
+        large = cv2.GaussianBlur(filtered, (0, 0), dog_large_sigma)
         dog = cv2.subtract(small, large)
         dog_median = float(np.median(dog))
         dog_mad = float(np.median(np.abs(dog.astype(np.float32) - dog_median)))
@@ -205,9 +242,17 @@ class BeaconDetector:
         contours, _ = cv2.findContours(opened, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         candidates: List[Dict[str, Any]] = []
         
+        if self.config.enable_scale_relative_geometry:
+            reference_area = np.pi * (self.spot_scale_px * 0.5) ** 2
+            minimum_area = max(2.0, 0.08 * reference_area)
+            maximum_area = max(64.0, 10.0 * reference_area)
+        else:
+            minimum_area = float(self.config.min_target_area)
+            maximum_area = float(self.config.max_target_area)
+
         for c in contours:
             area = cv2.contourArea(c)
-            if self.config.min_target_area <= area <= self.config.max_target_area:
+            if minimum_area <= area <= maximum_area:
                 bx, by, bw, bh = cv2.boundingRect(c)
                 aspect = float(bw) / float(max(1, bh))
                 if 0.30 <= aspect <= 3.2:
@@ -277,7 +322,7 @@ class BeaconDetector:
 
         if algo in (TrackingAlgorithm.IWC, TrackingAlgorithm.HYBRID):
             # Intensity-Weighted Centroid
-            pad = 3
+            pad = max(3, int(np.ceil(self.spot_scale_px * 0.5)))
             rx1 = max(0, lbx - pad)
             ry1 = max(0, lby - pad)
             rx2 = min(sw, lbx + lbw + pad)
@@ -316,7 +361,7 @@ class BeaconDetector:
 
         elif algo == TrackingAlgorithm.GAUSSIAN_FIT:
             # Analytical 2D Gaussian Surface Fitting with IWC baseline
-            pad = 3
+            pad = max(3, int(np.ceil(self.spot_scale_px * 0.5)))
             rx1 = max(0, lbx - pad)
             ry1 = max(0, lby - pad)
             rx2 = min(sw, lbx + lbw + pad)
@@ -384,10 +429,16 @@ class BeaconDetector:
                         final_x = float(max_loc[0] + self.template_size / 2.0 + crop_x0)
                         final_y = float(max_loc[1] + self.template_size / 2.0 + crop_y0)
 
-        # Compute SNR (dB) & confidence metric
+        # Compute classical confidence, then attach scale-aware photometry in
+        # full sensor coordinates. Aperture SNR is the filter-facing metric;
+        # the legacy dB value remains available to the existing UI.
         noise_floor = max(1.0, std_bg)
         signal_level = max(1.0, best["peak"] - mean_bg)
-        snr_db = float(20.0 * np.log10(signal_level / noise_floor))
+        photo = self._measure_photometry(
+            photometry_frame, photometry_residual,
+            (final_x, final_y), (gbx, gby, gbw, gbh),
+        )
+        snr_db = float(20.0 * np.log10(max(photo.snr_peak or 1e-6, 1e-6)))
         classical_confidence = float(np.clip(signal_level / (3.0 * noise_floor), 0.0, 1.0))
         verifier_confidence = float(best.get("verifier_score", classical_confidence))
         if algo == TrackingAlgorithm.HYBRID:
@@ -420,4 +471,31 @@ class BeaconDetector:
             heatmap=heatmap,
             heatmap_bbox=heatmap_bbox,
             is_decoy=is_decoy,
+            fwhm_px=photo.fwhm_px,
+            snr_aperture=photo.snr_aperture,
+            snr_peak=photo.snr_peak,
+            clipped=photo.clipped,
+            saturated_fraction=photo.saturated_fraction,
         )
+
+    def _measure_photometry(
+        self,
+        frame: np.ndarray,
+        residual: np.ndarray,
+        center_xy: tuple[float, float],
+        bbox: tuple[int, int, int, int],
+    ) -> SpotPhotometry:
+        photo = measure_spot(frame, residual, center_xy, bbox, self.spot_scale_px)
+        if (
+            not photo.clipped
+            and not photo.saturated
+            and photo.snr_aperture is not None
+            and photo.snr_aperture >= 5.0
+        ):
+            measured = float(np.clip(
+                photo.fwhm_px,
+                self.config.minimum_fwhm_px,
+                self.config.maximum_fwhm_px,
+            ))
+            self.spot_scale_px = 0.85 * self.spot_scale_px + 0.15 * measured
+        return photo

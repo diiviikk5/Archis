@@ -154,7 +154,9 @@ class ScenarioSummaryWidget(NavigationWidget):
             noise.append(f"warp {disturbance.turbulence_warp_px:g}px")
         if disturbance.turbulence_blur_sigma_px > 0:
             noise.append(f"blur σ{disturbance.turbulence_blur_sigma_px:g}px")
-        if disturbance.scintillation_log_std > 0:
+        if disturbance.scintillation_model == "gamma_gamma" and disturbance.rytov_variance > 0:
+            noise.append(f"Gamma–Gamma Rytov {disturbance.rytov_variance:g}")
+        elif disturbance.scintillation_log_std > 0:
             noise.append(f"scint σ{disturbance.scintillation_log_std:g}")
         if disturbance.illumination_flicker_fraction > 0:
             noise.append(
@@ -180,6 +182,8 @@ class ScenarioSummaryWidget(NavigationWidget):
         detector_text = (
             f"{detector.algorithm.value}; {detector.agc_mode.value}; "
             f"gate {self._on_off(detector.enable_track_gate)} {detector.gate_size_px}px; "
+            f"FWHM {'adaptive' if detector.enable_scale_relative_geometry else 'fixed'} "
+            f"{tracker.detector.spot_scale_px:.1f}px; R-cal {detector.measurement_noise_calibration:g}; "
             f"CodeLock {code}"
         )
         camera_text = (

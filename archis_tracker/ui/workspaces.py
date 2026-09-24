@@ -393,6 +393,8 @@ class ReviewInterface(QWidget):
                 <li>Lock Retention: <b style='color: #f0f6fc; font-family: Consolas;'>{summary['lock_retention_pct']:.1f}%</b></li>
                 <li>Peak Boresight Error: <b style='color: #f0f6fc; font-family: Consolas;'>{summary['max_error_px']:.2f} px</b></li>
                 <li>Average Loop Cycle: <b style='color: #f0f6fc; font-family: Consolas;'>{summary['average_processing_time_ms']:.2f} ms</b></li>
+                <li>P50 / P95 / Max Loop Cycle: <b style='color: #f0f6fc; font-family: Consolas;'>{summary['processing_p50_ms']:.2f} / {summary['processing_p95_ms']:.2f} / {summary['max_processing_time_ms']:.2f} ms</b></li>
+                <li>Conservative Throughput (1000 / p95): <b style='color: #f0f6fc; font-family: Consolas;'>{summary['conservative_fps']:.1f} FPS</b></li>
             </ul>
         </div>
         """

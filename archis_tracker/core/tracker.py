@@ -23,6 +23,7 @@ from .detector import BeaconDetector, DetectionResult
 from .disturbances import DisturbanceEngine
 from .environment import VirtualEnvironment
 from .kalman_filter import KalmanFilter2D
+from .photometry import SpotPhotometry, measurement_sigma_px
 from .presets import LoadedPreset, load_and_apply_preset
 from .state_machine import StateMachineConfig, TrackingStateMachine
 from .target import TargetBeacon, TargetManager
@@ -141,6 +142,7 @@ class TrackingSystem:
         self.detector.target_template = None
         self.detector.last_candidates = []
         self.detector.ai_detector.last_heatmap = None
+        self.detector.spot_scale_px = float(self.det_config.fallback_fwhm_px)
         self.last_detection = DetectionResult(False, algorithm_used=self.detector.config.algorithm.value)
         self.current_frame = np.zeros(
             (self.cam_config.viewport_height, self.cam_config.viewport_width), dtype=np.uint8
@@ -328,7 +330,19 @@ class TrackingSystem:
                 )
 
         measurement_accepted: bool | None = None
+        optical_sigma_px: float | None = None
         if detection.detected:
+            if detection.fwhm_px is not None and detection.snr_aperture is not None:
+                optical_sigma_px = measurement_sigma_px(
+                    SpotPhotometry(
+                        detection.fwhm_px, detection.snr_aperture,
+                        detection.snr_peak, 0.0, 0.0,
+                        detection.clipped, detection.saturated_fraction,
+                    ),
+                    calibration=self.det_config.measurement_noise_calibration,
+                    floor_px=self.det_config.measurement_noise_floor_px,
+                    ceiling_px=self.det_config.measurement_noise_ceiling_px,
+                )
             measurement_accepted = self.kalman.update(
                 detection.x,
                 detection.y,
@@ -336,6 +350,7 @@ class TrackingSystem:
                 gate_threshold_chi2=(
                     self.det_config.kalman_gate_threshold_chi2 if filter_gate else None
                 ),
+                measurement_sigma_px=optical_sigma_px,
             )
             if not measurement_accepted:
                 detection = DetectionResult(
@@ -346,6 +361,11 @@ class TrackingSystem:
                     algorithm_used=detection.algorithm_used,
                     heatmap=detection.heatmap,
                     heatmap_bbox=detection.heatmap_bbox,
+                    fwhm_px=detection.fwhm_px,
+                    snr_aperture=detection.snr_aperture,
+                    snr_peak=detection.snr_peak,
+                    clipped=detection.clipped,
+                    saturated_fraction=detection.saturated_fraction,
                 )
 
         previous_state = self.state_machine.state
@@ -398,6 +418,12 @@ class TrackingSystem:
                 if measurement_accepted is not None else None
             ),
             "measurement_accepted": measurement_accepted,
+            "measurement_sigma_px": optical_sigma_px,
+            "fwhm_px": detection.fwhm_px,
+            "snr_aperture": detection.snr_aperture,
+            "snr_peak": detection.snr_peak,
+            "clipped": detection.clipped,
+            "saturated_fraction": detection.saturated_fraction,
             "innovation_gate_enabled": filter_gate,
             "latency_compensation_s": self.ctrl_config.latency_compensation_s,
         }
@@ -464,6 +490,8 @@ class TrackingSystem:
             item.algorithm_used,
             item.confidence if "AI" in item.algorithm_used or "Hybrid" in item.algorithm_used else None,
             None,
+            item.fwhm_px, item.snr_aperture, item.snr_peak,
+            item.clipped, item.saturated_fraction,
         )
 
     @staticmethod
@@ -474,6 +502,11 @@ class TrackingSystem:
             (round(item.x_px - width / 2), round(item.y_px - height / 2), width, height),
             template.gate_bbox, item.confidence, template.peak_intensity, template.snr_db,
             template.algorithm_used, template.heatmap, False, template.heatmap_bbox,
+            item.fwhm_px if item.fwhm_px is not None else template.fwhm_px,
+            item.snr_aperture if item.snr_aperture is not None else template.snr_aperture,
+            item.snr_peak if item.snr_peak is not None else template.snr_peak,
+            item.clipped or template.clipped,
+            max(item.saturated_fraction, template.saturated_fraction),
         )
 
     def _apply_beacon_code(self) -> None:

@@ -35,8 +35,11 @@ class PerformanceSummary:
     lock_retention_pct: float
     target_loss_pct: float
     average_processing_ms: float
+    processing_p50_ms: float
+    processing_p95_ms: float
     maximum_processing_ms: float
     processing_fps: float
+    conservative_processing_fps: float
     reacquisition_count: int
     average_reacquisition_s: float | None
     maximum_reacquisition_s: float | None
@@ -56,6 +59,8 @@ class PerformanceRecorder:
         "frame_index", "timestamp_s", "state", "detected", "selected_x_px", "selected_y_px",
         "truth_x_px", "truth_y_px", "truth_visible", "centroid_error_px", "pointing_offset_px",
         "centroid_error_urad", "pointing_offset_urad",
+        "fwhm_px", "snr_aperture", "snr_peak", "clipped", "saturated_fraction",
+        "measurement_sigma_px", "innovation_distance_sq",
         "pan_rate_deg_s", "tilt_rate_deg_s", "processing_time_ms", "source_fps",
     )
 
@@ -121,6 +126,13 @@ class PerformanceRecorder:
             "pointing_offset_px": pointing,
             "centroid_error_urad": centroid_urad,
             "pointing_offset_urad": pointing_urad,
+            "fwhm_px": None if selected is None else selected.fwhm_px,
+            "snr_aperture": None if selected is None else selected.snr_aperture,
+            "snr_peak": None if selected is None else selected.snr_peak,
+            "clipped": None if selected is None else int(selected.clipped),
+            "saturated_fraction": None if selected is None else selected.saturated_fraction,
+            "measurement_sigma_px": result.diagnostics.get("measurement_sigma_px"),
+            "innovation_distance_sq": result.diagnostics.get("innovation_distance_sq"),
             "pan_rate_deg_s": None if result.command is None else result.command.pan_rate_deg_s,
             "tilt_rate_deg_s": None if result.command is None else result.command.tilt_rate_deg_s,
             "processing_time_ms": result.processing_time_ms,
@@ -152,6 +164,8 @@ class PerformanceRecorder:
         )
         retention = 100.0 * locked / len(after) if after else 0.0
         average_ms = mean(processing)
+        p50_ms = _percentile(processing, .50)
+        p95_ms = _percentile(processing, .95)
         centroid_rmse = math.sqrt(mean(value * value for value in centroid)) if centroid else None
         reacq_max = max(self.reacquisition_times) if self.reacquisition_times else None
         acquired = self.acquired_at is not None and self.acquired_at <= self.thresholds.max_acquisition_time_s
@@ -168,7 +182,8 @@ class PerformanceRecorder:
             reacq_max is None or reacq_max <= self.thresholds.max_reacquisition_time_s
         )
         fps = 1000.0 / average_ms if average_ms > 0 else 0.0
-        fps_pass = fps >= self.thresholds.min_processing_fps
+        conservative_fps = 1000.0 / p95_ms if p95_ms > 0 else 0.0
+        fps_pass = conservative_fps >= self.thresholds.min_processing_fps
         return PerformanceSummary(
             self.scenario, len(self.rows), float(self.rows[-1]["timestamp_s"]) - float(self.rows[0]["timestamp_s"]),
             self.acquired_at, centroid_rmse, mean(centroid) if centroid else None,
@@ -176,7 +191,8 @@ class PerformanceRecorder:
             math.sqrt(mean(value * value for value in centroid_urad)) if centroid_urad else None,
             pointing_rmse,
             math.sqrt(mean(value * value for value in pointing_urad)) if pointing_urad else None,
-            retention, 100.0 - retention, average_ms, max(processing), fps,
+            retention, 100.0 - retention, average_ms, p50_ms, p95_ms,
+            max(processing), fps, conservative_fps,
             len(self.reacquisition_times), mean(self.reacquisition_times) if self.reacquisition_times else None,
             reacq_max, "ground_truth" if truth_available else "observed_tracking",
             self._fingerprint.hexdigest(),
@@ -228,7 +244,13 @@ class PerformanceRecorder:
 
 def _percentile(values: list[float], fraction: float) -> float:
     ordered = sorted(values)
-    return ordered[round((len(ordered) - 1) * fraction)]
+    position = (len(ordered) - 1) * fraction
+    lower = int(math.floor(position))
+    upper = int(math.ceil(position))
+    if lower == upper:
+        return ordered[lower]
+    weight = position - lower
+    return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
 
 
 def _html_rows(values: dict[str, Any]) -> str:

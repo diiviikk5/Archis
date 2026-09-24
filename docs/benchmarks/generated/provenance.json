@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-09-24T06:14:21.016867+00:00",
+  "generated_at_utc": "2026-09-24T07:42:03.347503+00:00",
   "application_version": "2.0.0",
-  "engine_fingerprint": "dddfe241f2cae04eb877fb2cda66009abd9ef2d17df4ea467e9946edec42d95f",
-  "git_head_when_generated": "76072c74e1d0be9fca9cc48d8964e15fb3138392",
+  "engine_fingerprint": "a709e0f7501437d006e000b7e253f0481b2972cd73cd741b08294bc2491bfeb3",
+  "git_head_when_generated": "36bf1ee96c04cba65186b3dd39d869f996ee18bd",
   "benchmark_frames_per_run": 1800,
   "seeds": [
     26169,
@@ -16,7 +16,7 @@
     "machine": "x86_64",
     "python": "3.14.7",
     "numpy": "2.5.3",
-    "opencv": "4.14.0"
+    "opencv": "5.0.0"
   },
-  "throughput_note": "processing_fps is wall-clock and host-dependent; deterministic accuracy fingerprints do not include processing latency"
+  "throughput_note": "processing_fps and conservative_processing_fps are wall-clock and host-dependent; deterministic accuracy fingerprints do not include processing latency"
 }

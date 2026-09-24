@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "measurement_noise_model": "sigma_px = k * FWHM_px / (2 * aperture_SNR)",
+  "validation_seed": 26169,
+  "spot_fwhm_px": [3.0, 7.0, 15.0],
+  "noise_std_lsb": [1.0, 6.0, 14.0],
+  "peak_signal_lsb": [120.0, 240.0, 360.0],
+  "excluded_from_fit": ["missed", "clipped", "saturated_fraction > 0.05"],
+  "raw_p95_factor": 14.153717585045335,
+  "shipped_rounded_factor": 14.2,
+  "uncertainty_floor_px": 0.15,
+  "uncertainty_ceiling_px": 20.0
+}

@@ -49,6 +49,7 @@ class TelemetryEngine:
         self.max_error_px: float = 0.0
         self.processing_time_sum_ms: float = 0.0
         self.max_processing_time_ms: float = 0.0
+        self.processing_times_ms: List[float] = []
         self.current_centroid_error_px: Optional[float] = None
         self.centroid_error_sum_px: float = 0.0
         self.centroid_error_sq_sum_px: float = 0.0
@@ -105,6 +106,7 @@ class TelemetryEngine:
         self.max_error_px = 0.0
         self.processing_time_sum_ms = 0.0
         self.max_processing_time_ms = 0.0
+        self.processing_times_ms.clear()
         self.current_centroid_error_px = None
         self.centroid_error_sum_px = 0.0
         self.centroid_error_sq_sum_px = 0.0
@@ -141,6 +143,7 @@ class TelemetryEngine:
         self.pipeline_latency_ms = latency_ms
         self.processing_time_sum_ms += latency_ms
         self.max_processing_time_ms = max(self.max_processing_time_ms, latency_ms)
+        self.processing_times_ms.append(float(latency_ms))
         self.current_centroid_error_px = None
         
         if detected:
@@ -310,6 +313,9 @@ class TelemetryEngine:
             f"Simulation duration: {summary['simulation_duration_s']:.3f} s",
             f"Frames processed: {summary['total_frames']}",
             f"Average processing time: {summary['average_processing_time_ms']:.3f} ms",
+            f"P50 processing time: {summary['processing_p50_ms']:.3f} ms",
+            f"P95 processing time: {summary['processing_p95_ms']:.3f} ms",
+            f"Maximum processing time: {summary['max_processing_time_ms']:.3f} ms",
             f"Average tracking error: {summary['average_error_px']:.3f} px",
             f"Centroid RMSE: {summary['centroid_rmse_px'] if summary['centroid_rmse_px'] is not None else 'N/A'}",
             f"Maximum tracking error: {summary['max_error_px']:.3f} px",
@@ -318,7 +324,8 @@ class TelemetryEngine:
             f"Acquisition: {summary['acquisition_time_s']:.3f} s [{status(summary['acquisition_passed'])}]",
             f"RMS pointing error: {summary['rms_error_px']:.3f} px [{status(summary['error_passed'])}]",
             f"Target loss: {summary['target_loss_pct']:.3f} % [{status(summary['loss_passed'])}]",
-            f"Processing rate: {summary['fps']:.3f} FPS [{status(summary['fps_passed'])}]",
+            f"Mean processing rate: {summary['fps']:.3f} FPS",
+            f"Conservative processing rate (1000/p95): {summary['conservative_fps']:.3f} FPS [{status(summary['fps_passed'])}]",
         ]
         if summary["reacquisition_evaluated"]:
             lines.append(
@@ -355,6 +362,9 @@ class TelemetryEngine:
         average_error = self.error_sum_px / self.tracked_frames if self.tracked_frames else 0.0
         average_processing = self.processing_time_sum_ms / self.total_frames if self.total_frames else 0.0
         processing_throughput = 1000.0 / average_processing if average_processing > 0 else 0.0
+        p50_processing = float(np.percentile(self.processing_times_ms, 50)) if self.processing_times_ms else 0.0
+        p95_processing = float(np.percentile(self.processing_times_ms, 95)) if self.processing_times_ms else 0.0
+        conservative_throughput = 1000.0 / p95_processing if p95_processing > 0 else 0.0
         lock_retention = self.tracked_frames / self.total_frames * 100.0 if self.total_frames else 0.0
         return {
             "simulation_duration_s": self.simulation_duration_s,
@@ -385,8 +395,11 @@ class TelemetryEngine:
             "reacquisition_evaluated": self.reacquisition_count > 0,
             "reacquisition_passed": self.reacquisition_count > 0 and self.loss_start_time is None and self.last_reacquisition_time_s <= self.thresholds.max_reacquisition_time_s,
             "fps": processing_throughput,
+            "conservative_fps": conservative_throughput,
             "camera_update_fps": self.current_fps,
-            "fps_passed": self.total_frames > 0 and processing_throughput >= self.thresholds.min_processing_fps,
+            "fps_passed": self.total_frames > 0 and conservative_throughput >= self.thresholds.min_processing_fps,
             "average_processing_time_ms": average_processing,
+            "processing_p50_ms": p50_processing,
+            "processing_p95_ms": p95_processing,
             "max_processing_time_ms": self.max_processing_time_ms,
         }

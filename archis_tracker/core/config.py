@@ -167,6 +167,10 @@ class DisturbanceConfig:
     turbulence_warp_px: float = 0.0
     turbulence_blur_sigma_px: float = 0.0
     scintillation_log_std: float = 0.0
+    # Optional physically parameterised Gamma-Gamma irradiance model.  The
+    # legacy log-normal model remains the default for preset compatibility.
+    scintillation_model: str = "lognormal"
+    rytov_variance: float = 0.0
 
     # Periodic source/background illumination variation.  A value of 0.15
     # varies the image gain by +/-15 percent around unity.
@@ -238,6 +242,15 @@ class DetectorConfig:
     subpixel_precision: bool = True
     min_target_area: int = 4
     max_target_area: int = 450
+    enable_scale_relative_geometry: bool = True
+    fallback_fwhm_px: float = 8.0
+    minimum_fwhm_px: float = 2.0
+    maximum_fwhm_px: float = 32.0
+    # Rounded conservative p95 fit from the deterministic optical validation
+    # matrix (spot FWHM 3/7/15 px, noise sigma 1/6/14, unsaturated peaks).
+    measurement_noise_calibration: float = 14.2
+    measurement_noise_floor_px: float = 0.15
+    measurement_noise_ceiling_px: float = 20.0
     agc_mode: AGCMode = AGCMode.LINEAR
     ai_confidence_threshold: float = 0.88
     enable_ai_decoy_filter: bool = True

@@ -125,7 +125,7 @@ def provenance(fingerprint: str) -> dict[str, Any]:
             "opencv": cv2.__version__,
         },
         "throughput_note": (
-            "processing_fps is wall-clock and host-dependent; deterministic accuracy "
+            "processing_fps and conservative_processing_fps are wall-clock and host-dependent; deterministic accuracy "
             "fingerprints do not include processing latency"
         ),
     }
@@ -157,7 +157,7 @@ def _fmt_range(rows: list[dict[str, Any]], key: str, suffix: str = "") -> str:
     low, high = min(values), max(values)
     if key.endswith("_pct"):
         precision = 2
-    elif key == "processing_fps":
+    elif key in {"processing_fps", "conservative_processing_fps"}:
         precision = 1
     else:
         precision = 3
@@ -191,7 +191,7 @@ Generated from three 60-second runs (1,800 frames each) using seeds 26169–2617
 | Pointing RMSE | ≤ 10 px | {_fmt_range(rows, 'pointing_rmse_px', ' px')} | {'PASS' if all(r['pointing_passed'] for r in rows) else 'FAIL'} |
 | Target loss | < 5% | {_fmt_range(rows, 'target_loss_pct', '%')} | {'PASS' if all(r['loss_passed'] for r in rows) else 'FAIL'} |
 | Worst re-acquisition | ≤ 1.0 s when applicable | {reacq} | {'PASS' if all(r['reacquisition_passed'] for r in rows) else 'FAIL'} |
-| Processing throughput | ≥ 20 FPS | {_fmt_range(rows, 'processing_fps', ' FPS')} | {fps_passes}/3 on this host |
+| Conservative throughput (1000 / p95 latency) | ≥ 20 FPS | {_fmt_range(rows, 'conservative_processing_fps', ' FPS')} | {fps_passes}/3 on this host |
 
 Deterministic accuracy/control verdict: **{deterministic}**. Throughput is reported separately because it depends on the host. A scenario is not claimed as a universal strict pass from these development-machine timings.
 
@@ -204,10 +204,10 @@ def _processing_doc(rows: list[dict[str, Any]], fingerprint: str, host: dict[str
     lines = []
     for key, preset_rows in by_preset.items():
         lines.append(
-            f"| {PRESETS[key][1].removesuffix(' Benchmark')} | {_fmt_range(preset_rows, 'processing_fps', ' FPS')} | "
+            f"| {PRESETS[key][1].removesuffix(' Benchmark')} | {_fmt_range(preset_rows, 'conservative_processing_fps', ' FPS')} | "
             f"{sum(bool(r['fps_passed']) for r in preset_rows)}/3 |"
         )
-    all_fps = [float(row["processing_fps"]) for row in rows]
+    all_fps = [float(row["conservative_processing_fps"]) for row in rows]
     return f"""# Processing Throughput Profile
 
 {_marker(fingerprint)}
@@ -229,7 +229,7 @@ def _noise_doc(rows: list[dict[str, Any]], fingerprint: str, host: dict[str, str
     for row in rows:
         lines.append(
             f"| {row['noise_std']:.0f} | {row['centroid_rmse_px']:.3f} px | {row['pointing_rmse_px']:.3f} px | "
-            f"{row['target_loss_pct']:.2f}% | {row['processing_fps']:.1f} FPS |"
+            f"{row['target_loss_pct']:.2f}% | {row['conservative_processing_fps']:.1f} FPS |"
         )
     return f"""# Sensor Noise vs Centroiding Accuracy
 

@@ -15,6 +15,8 @@ class KalmanFilter2D:
         
         self.q_noise = q_accel_noise
         self.r_noise = r_measurement_noise
+        self._last_r_variance = float(r_measurement_noise)
+        self.last_measurement_sigma_px: Optional[float] = None
         self.is_initialized: bool = False
         self.last_innovation_distance_sq: Optional[float] = None
         self.last_measurement_accepted: bool = False
@@ -25,6 +27,8 @@ class KalmanFilter2D:
         self.is_initialized = True
         self.last_innovation_distance_sq = None
         self.last_measurement_accepted = False
+        self._last_r_variance = float(self.r_noise)
+        self.last_measurement_sigma_px = None
 
     def predict(self, dt: float) -> Tuple[float, float]:
         """
@@ -77,6 +81,7 @@ class KalmanFilter2D:
         meas_y: float,
         confidence: float = 1.0,
         gate_threshold_chi2: Optional[float] = None,
+        measurement_sigma_px: Optional[float] = None,
     ) -> bool:
         """
         Incorporates measurement (meas_x, meas_y) into the state estimate.
@@ -95,9 +100,18 @@ class KalmanFilter2D:
         H[0, 0] = 1.0
         H[1, 3] = 1.0
         
-        # Adaptive measurement noise covariance R
-        conf = max(0.1, min(1.0, confidence))
-        r_eff = self.r_noise / (conf * conf)
+        # Prefer calibrated optical measurement uncertainty when the detector
+        # has enough photometric evidence.  Confidence remains the backwards-
+        # compatible fallback for algorithms without aperture photometry.
+        if measurement_sigma_px is not None and np.isfinite(measurement_sigma_px) and measurement_sigma_px > 0:
+            sigma = float(measurement_sigma_px)
+            r_eff = sigma * sigma
+            self.last_measurement_sigma_px = sigma
+        else:
+            conf = max(0.1, min(1.0, confidence))
+            r_eff = self.r_noise / (conf * conf)
+            self.last_measurement_sigma_px = float(np.sqrt(r_eff))
+        self._last_r_variance = float(r_eff)
         R = np.eye(2, dtype=np.float32) * r_eff
         
         z = np.array([meas_x, meas_y], dtype=np.float32)
@@ -158,5 +172,5 @@ class KalmanFilter2D:
         H = np.zeros((2, 6), dtype=np.float32)
         H[0, 0] = 1.0
         H[1, 3] = 1.0
-        R = np.eye(2, dtype=np.float32) * self.r_noise
+        R = np.eye(2, dtype=np.float32) * self._last_r_variance
         return H @ self.cov @ H.T + R

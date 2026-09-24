@@ -9,7 +9,10 @@ It combines a polished PyQt/Fluent simulator with a deterministic tracking and e
 - Configurable 2000×2000 virtual world, beacon shapes and trajectories.
 - Fixed-step, seeded noise, atmosphere, platform motion, jitter, scheduled dropout, and deterministic burst loss.
 - Explicit `SEARCH → ACQUIRE → TRACK → COAST → REACQUIRE` state machine.
-- Six-state acceleration-aware Kalman estimation with confidence-scaled measurement noise, Joseph covariance correction, and catastrophic-jump rejection.
+- Six-state acceleration-aware Kalman estimation with calibrated FWHM/aperture-SNR measurement noise, Joseph covariance correction, and catastrophic-jump rejection.
+- Per-detection FWHM, aperture/peak SNR, sensor-edge clipping, and saturation evidence in CSV/JSON/HTML reports.
+- Scale-relative candidate geometry, deterministic optical-quality sweeps, and a mechanically bounded trackable-velocity benchmark.
+- Optional seeded Gamma–Gamma scintillation using a validated Rytov-variance scenario control.
 - Optional latency-compensated aimpoints using estimated position, velocity, and acceleration.
 - Hybrid, IWC, Gaussian-fit, NCC, and NanoSpot algorithm modes.
 - Native-resolution MP4, still-image, and image-sequence analysis.
@@ -43,6 +46,8 @@ archis simulate archis_tracker/presets/nominal_leo.json --frames 300
 archis benchmark archis_tracker/presets/cloud_dropout.json --frames 1800 --output-dir reports/dropout
 archis compare archis_tracker/presets/nominal_leo.json --output-dir reports/compare
 archis stress-test archis_tracker/presets/heavy_turbulence.json --output-dir reports/stress
+archis validate-optics --seed 26169 --output-dir reports/optical-validation
+archis velocity-envelope archis_tracker/presets/nominal_leo.json --frames 300 --output-dir reports/velocity
 archis analyze input.mp4 --truth truth.csv --output-dir reports/video
 archis train-ai --samples 400 --seed 26169
 python scripts/generate_benchmark_evidence.py --verify
@@ -76,6 +81,8 @@ Simulation applies effects in this order: world and targets, camera pose, platfo
 
 The estimator uses a strict candidate-association gate followed by a deliberately wider Kalman sanity gate. Periodic full-frame safety scans therefore remain capable of finding the target without allowing an unrelated bright candidate to cause a catastrophic state jump. The correction uses the Joseph covariance form to retain covariance symmetry and positive semi-definiteness under finite precision.
 
+Each selected beacon now carries measured FWHM, aperture SNR, peak SNR, edge-clipping status, and saturated-core fraction. Archis converts this evidence to bounded measurement uncertainty using `σpx = k·FWHM/(2·SNRaperture)`, with `k = 14.2` from the deterministic p95 calibration matrix and a 0.15–20 px clamp. Clipping and saturation add explicit uncertainty penalties. Candidate area, centroid padding, prediction-gate size, and DoG scales follow the measured spot size instead of assuming one fixed beacon footprint.
+
 ### New scenario controls
 
 Schema-v2 scenarios can enable the AstraTrack-inspired features without changing existing preset behavior:
@@ -83,6 +90,8 @@ Schema-v2 scenarios can enable the AstraTrack-inspired features without changing
 ```json
 {
   "disturbances": {
+    "scintillation_model": "gamma_gamma",
+    "rytov_variance": 0.6,
     "dropout": {
       "enabled": false,
       "start_s": 20.0,
@@ -93,7 +102,14 @@ Schema-v2 scenarios can enable the AstraTrack-inspired features without changing
     }
   },
   "detector": {
-    "innovation_gate_chi2": 10000.0
+    "innovation_gate_chi2": 10000.0,
+    "scale_relative_geometry": true,
+    "fallback_fwhm_px": 8.0,
+    "minimum_fwhm_px": 2.0,
+    "maximum_fwhm_px": 32.0,
+    "measurement_noise_calibration": 14.2,
+    "measurement_noise_floor_px": 0.15,
+    "measurement_noise_ceiling_px": 20.0
   },
   "controller": {
     "latency_compensation_s": 0.075
@@ -102,6 +118,22 @@ Schema-v2 scenarios can enable the AstraTrack-inspired features without changing
 ```
 
 `mean_clear_s` and `mean_loss_s` are mean dwell times for a continuous-time two-state loss process. Transition probabilities are derived from the sensor timestep, and the channel has an isolated RNG stream, so identical seeds reproduce identical loss sequences without perturbing the other noise channels. `latency_compensation_s` should represent known sensor, processing, transport, and actuator delay; leave it at `0.0` when no delay is being modelled.
+
+Use `scintillation_model: "lognormal"` with `scintillation_log_std` for the compatible empirical model, or `"gamma_gamma"` with `rytov_variance` for the optional unit-mean physical irradiance model. The active-configuration sidebar shows the selected model, current adaptive FWHM, and measurement-noise calibration.
+
+## FSOC-tracker selective upgrade
+
+`Yashrajz06/fsoc-tracker` commit `0c06a51` was reviewed as a technical reference. Because that repository did not provide a software license, no source was copied. The useful measurement and validation concepts were independently implemented against Archis contracts and tested in the deterministic engine.
+
+| Area | Previous Archis | Current implementation | Practical benefit |
+| --- | --- | --- | --- |
+| Spot evidence | Peak intensity and legacy dB estimate | FWHM, aperture/peak SNR, clipping and saturation | Reports expose optical quality instead of one opaque confidence |
+| Kalman `R` | Detector-confidence scaling | Calibrated, bounded FWHM/SNR uncertainty plus clipping/saturation penalties | Filter confidence follows actual sensor evidence |
+| Candidate geometry | Fixed morphology and area limits | Measured-scale DoG, area, padding and prediction gate | Better support for changing apparent spot size |
+| Timing gate | Mean loop time | p50, p95 and max latency; gate uses `1000/p95` FPS | A few slow frames can no longer be hidden by a fast mean |
+| Optical validation | Noise-only scenario sweep | Deterministic SNR × saturation × spot-size sweep and stored calibration | Reproducible calibration rather than a guessed factor |
+| Speed claim | Scenario-specific high-speed examples | Finite sweep capped by the configured gimbal mechanical limit | Trackable velocity is evidence-bounded, not unbounded |
+| Turbulence | Warp, blur and log-normal scintillation | Optional seeded Gamma–Gamma/Rytov model | Adds a physically parameterized irradiance stress mode |
 
 ## AstraTrack selective-upgrade comparison
 
@@ -121,7 +153,7 @@ AstraTrack commit `856b483f89f33a77b61c8735f48df6a79a75c994` was reviewed module
 
 ### Before/after benchmark
 
-Both columns below use `scenarios/schema_v2_example.json`, 1,800 frames at 30 Hz, seed `26169`, and the same development machine. “Before” is engine commit `2f2e0f6`; “after” is engine commit `93e432a`. Accuracy and state metrics are deterministic for the recorded seed. Processing throughput is wall-clock dependent and should not be treated as an algorithmic accuracy metric.
+This historical comparison used `scenarios/schema_v2_example.json`, 1,800 frames at 30 Hz, seed `26169`, and the same development machine. “Before” is engine commit `2f2e0f6`; “after” is engine commit `93e432a`. It predates the current optical-quality upgrade; use the generated matrix below for current results. Accuracy and state metrics are deterministic for the recorded seed. Processing throughput is wall-clock dependent and should not be treated as an algorithmic accuracy metric.
 
 | Metric | Before | After | Change | SIH gate |
 | --- | ---: | ---: | ---: | --- |
@@ -141,15 +173,15 @@ The small centroid/reacquisition differences come from the numerically stable co
 
 The latest verification run contains 15 runs: five 60-second, 30 Hz scenarios across seeds 26169–26171. These are development-machine measurements, not unseen-video guarantees. Accuracy/state results are deterministic for a given source-tree fingerprint and seed; processing FPS is wall-clock and machine-dependent. Full provenance is recorded in [`docs/benchmarks/generated/provenance.json`](docs/benchmarks/generated/provenance.json), and the evidence can be regenerated with `python scripts/generate_benchmark_evidence.py`.
 
-| Scenario | Acquisition | Centroid RMSE | Pointing RMSE | Worst loss | Reacquisition | Accuracy/control verdict | Host FPS |
+| Scenario | Acquisition | Centroid RMSE | Pointing RMSE | Worst loss | Reacquisition | Accuracy/control verdict | Host conservative FPS (1000/p95) |
 | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: |
-| Nominal LEO | 0.10 s | 0.023–0.028 px | 2.86–2.89 px | 0.00% | n/a | Pass | 113.4–149.2 |
-| Evasive target | 0.10 s | 0.027–0.029 px | 3.03–3.25 px | 0.00% | n/a | Pass | 112.1–141.7 |
-| Heavy turbulence | 0.10 s | **2.554–2.583 px** | **3.109–3.158 px** | 0.00% | n/a | Pass | **17.8–27.9** |
-| Cloud dropout | 0.10 s | 0.098–0.099 px | 0.961–0.965 px | 0.50% | 0.30 s | Pass | 127.7–129.3 |
-| Platform jitter | 0.10 s | 0.025–0.036 px | 12.99–13.15 px | 0.00% | n/a | **Pointing gate miss** | 131.9–147.3 |
+| Nominal LEO | 0.10 s | 0.023–0.029 px | 2.866–2.894 px | 0.00% | n/a | Pass | 90.5–97.4 |
+| Evasive target | 0.10 s | 0.029–0.031 px | 2.972–3.184 px | 0.00% | n/a | Pass | 93.6–96.5 |
+| Heavy turbulence | 0.10 s | **2.554–2.589 px** | **3.038–3.083 px** | 0.00% | n/a | Pass | **14.8–23.8** |
+| Cloud dropout | 0.10 s | 0.099–0.102 px | 0.958–0.966 px | 0.50% | 0.30 s | Pass | 78.7–82.1 |
+| Platform jitter | 0.10 s | 0.038–0.094 px | 13.064–13.233 px | 0.06–0.17% | 0.033 s | **Pointing gate miss** | 84.7–95.6 |
 
-Twelve of the 15 runs passed every deterministic accuracy/control gate; the three misses were all the platform-jitter pointing gate. On the recorded development host, 11 of 15 runs also passed the host-dependent ≥20 FPS gate: one heavy-turbulence run measured 17.8 FPS. Heavy turbulence is therefore **not** claimed as a universal strict pass. Platform jitter demonstrates why centroid accuracy and closed-loop pointing accuracy are reported separately: detection remained accurate, but camera offset exceeded the strict 10 px gate.
+Twelve of the 15 runs passed every deterministic accuracy/control gate; the three misses were all the platform-jitter pointing gate. On the recorded development host, 14 of 15 runs passed the conservative ≥20 FPS gate; one heavy-turbulence run had p95 latency corresponding to 14.8 FPS. Heavy turbulence is therefore **not** claimed as a universal strict pass. Platform jitter demonstrates why centroid accuracy and closed-loop pointing accuracy are reported separately: detection remained accurate, but camera offset exceeded the strict 10 px gate.
 
 The seven files under [`docs/benchmarks`](docs/benchmarks) are generated from this matrix and a real sensor-noise sweep, rather than hand-written tables. CI and the Windows release build run `python scripts/generate_benchmark_evidence.py --verify`; it fails if engine/preset/model inputs change, if a generated report is edited, if the matrix does not contain exactly 15 truth-scored runs, or if per-frame reports use an old schema.
 
@@ -159,7 +191,7 @@ The seven files under [`docs/benchmarks`](docs/benchmarks) are generated from th
 python -m pytest -q
 ```
 
-The unified suite currently contains **94 passing tests**. The count includes every parameterized case and covers acquisition at the frame center/edges/corners, truth isolation, repeatability, state transitions, CodeLock, controller bounds, preset migration, native-resolution media, truth sidecars, metrics, headless UI startup, estimator outlier rejection, latency compensation, deterministic burst loss, report export, the explicit 3D two-terminal world, and the live active-configuration sidebar.
+The unified suite currently contains **104 passing tests**. The count includes every parameterized case and covers acquisition at the frame center/edges/corners, truth isolation, repeatability, state transitions, CodeLock, controller bounds, preset migration, native-resolution media, truth sidecars, metrics, headless UI startup, estimator outlier rejection, calibrated optical uncertainty, scale-relative detection, Gamma–Gamma repeatability, p95 throughput, velocity bounds, latency compensation, deterministic burst loss, report export, the explicit 3D two-terminal world, and the live active-configuration sidebar.
 
 | Test module | Passing cases | Coverage |
 | --- | ---: | --- |
@@ -172,15 +204,16 @@ The unified suite currently contains **94 passing tests**. The count includes ev
 | `test_external_video.py` | 2 | Native external frames, BGRA images, sequence ordering |
 | `test_gimbal.py` | 2 | Gimbal dynamics and gyro telemetry |
 | `test_optics.py` | 3 | FOV intrinsics and angular geometry |
+| `test_optical_validation.py` | 9 | FWHM/SNR/saturation sweeps, calibrated Kalman noise, adaptive geometry, Gamma–Gamma, latency and velocity bounds |
 | `test_performance_v2.py` | 5 | Truth-based reports, honest truth-free metrics, fingerprints |
 | `test_playback_ui.py` | 9 | Worker pacing, viewport, overlays, capture, live controls, configuration sidebar and chart legends |
 | `test_presets.py` | 3 | Live preset application, atomic rejection, independent limits |
 | `test_session_report.py` | 1 | Automatic CSV/JSON/HTML session evidence |
 | `test_target.py` | 10 | Shapes, six trajectories, continuity, bounce, zero timestep |
-| `test_telemetry.py` | 4 | Empty runs, loss limits, reacquisition, aggregate telemetry |
+| `test_telemetry.py` | 5 | Empty runs, loss limits, reacquisition, aggregate telemetry, conservative p95 throughput |
 | `test_unified_core.py` | 19 | Contracts, state machine, seeds, truth, CodeLock, new estimator features |
 | `test_world_model.py` | 6 | Explicit terminal poses, relative geometry, physical velocity, decoys, isolation |
-| **Total** | **94** | **All passing** |
+| **Total** | **104** | **All passing** |
 
 <details>
 <summary>Complete passing test inventory</summary>
@@ -274,12 +307,25 @@ The unified suite currently contains **94 passing tests**. The count includes ev
 - `test_straight_motion_bounces_and_responds_to_speed`
 - `test_zero_time_step_does_not_move_target`
 
-#### Telemetry — 4
+#### Telemetry — 5
 
 - `test_empty_session_cannot_pass_benchmark`
 - `test_unresolved_loss_and_exact_loss_limit_fail`
 - `test_completed_reacquisition_is_measured`
 - `test_telemetry_metrics_tracking`
+- `test_session_latency_uses_p95_for_conservative_throughput`
+
+#### Optical quality and bounded validation — 9
+
+- `test_optical_sweep_tracks_spot_scale_snr_and_saturation`
+- `test_measurement_noise_is_bounded_and_penalizes_clipping`
+- `test_shipped_calibration_matches_reproducible_validation_matrix`
+- `test_kalman_uses_optical_measurement_uncertainty`
+- `test_detector_geometry_adapts_across_spot_scales`
+- `test_gamma_gamma_channel_is_repeatable_and_unit_mean`
+- `test_scenario_validates_and_builds_new_optical_controls`
+- `test_reports_include_photometry_and_conservative_p95_throughput`
+- `test_velocity_envelope_is_finite_and_mechanically_bounded`
 
 #### Unified core — 19
 
@@ -324,6 +370,6 @@ The script runs tests, creates the one-folder application, packages a portable Z
 
 ## Provenance
 
-Archis1 commit `06022f1` is the product baseline. Qlyraxis commit `2514c5d` supplied the deterministic tracking-core reference. AstraTrack commit `856b483f89f33a77b61c8735f48df6a79a75c994` supplied selected estimator, latency, and disturbance-testing ideas that were independently validated and reimplemented. Unrelated Git histories were not merged. Existing Archis preset names and the Fluent desktop workflow remain authoritative.
+Archis1 commit `06022f1` is the product baseline. Qlyraxis commit `2514c5d` supplied the deterministic tracking-core reference. AstraTrack commit `856b483f89f33a77b61c8735f48df6a79a75c994` supplied selected estimator, latency, and disturbance-testing ideas that were independently validated and reimplemented. `Yashrajz06/fsoc-tracker` commit `0c06a51` supplied optical-measurement and validation ideas; because no license was present, Archis uses an independent implementation rather than copied source. Unrelated Git histories were not merged. Existing Archis preset names and the Fluent desktop workflow remain authoritative.
 
 The formal technical report and user manual are intentionally deferred to the final submission pass.
