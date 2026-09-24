@@ -106,6 +106,9 @@ def load_and_apply_preset(tracker, path: str | Path) -> LoadedPreset:
         "dropout_enabled": _boolean(dropout, "enabled"),
         "dropout_start": _number(dropout, "start_s", 0, 86400),
         "dropout_duration": _number(dropout, "duration_s", 0, 86400),
+        "dropout_burst": _boolean(dropout, "burst_enabled"),
+        "dropout_mean_clear": _number(dropout, "mean_clear_s", 0.001, 86400),
+        "dropout_mean_loss": _number(dropout, "mean_loss_s", 0.001, 86400),
     }
 
     primary = tracker.primary_target
@@ -142,6 +145,9 @@ def load_and_apply_preset(tracker, path: str | Path) -> LoadedPreset:
         "dropout_enabled": "dropout_enabled",
         "dropout_start": "dropout_start_s",
         "dropout_duration": "dropout_duration_s",
+        "dropout_burst": "dropout_burst_enabled",
+        "dropout_mean_clear": "dropout_mean_clear_s",
+        "dropout_mean_loss": "dropout_mean_loss_s",
     }
     for key, attr in disturbance_map.items():
         if values[key] is not None:

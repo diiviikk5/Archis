@@ -9,13 +9,18 @@ import numpy as np
 import pytest
 
 from archis_tracker.core.codelock import CodeLock
-from archis_tracker.core.config import DetectorConfig, TrackingAlgorithm
+from archis_tracker.core.config import ControllerConfig, DetectorConfig, TrackingAlgorithm
 from archis_tracker.core.contracts import (
     CanonicalTrackingState, Detection, FramePacket, GroundTruthSample,
 )
-from archis_tracker.core.scenario import Scenario, ScenarioError, load_scenario, tracker_from_scenario, validate_scenario
+from archis_tracker.core.scenario import (
+    DEFAULT_SCENARIO, Scenario, ScenarioError, load_scenario,
+    tracker_from_scenario, validate_scenario,
+)
 from archis_tracker.core.state_machine import TrackingStateMachine
 from archis_tracker.core.tracker import TrackingSystem
+from archis_tracker.core.kalman_filter import KalmanFilter2D
+from archis_tracker.core.detector import DetectionResult
 from archis_tracker.core.truth import TruthSidecar, TruthSidecarError
 
 
@@ -184,3 +189,62 @@ def test_codelock_rejects_invalid_runtime_configuration():
         CodeLock("1011001", symbol_frames=0)
     with pytest.raises(ValueError):
         CodeLock("1011001", minimum_correlation=1.1)
+
+
+def test_kalman_rejects_statistical_outlier_and_preserves_covariance_health():
+    kalman = KalmanFilter2D()
+    kalman.reset(100, 80)
+    kalman.predict(1 / 30)
+    assert kalman.update(101, 80.5, confidence=0.9, gate_threshold_chi2=9.21)
+    state_before = kalman.state.copy()
+    covariance_before = kalman.cov.copy()
+
+    assert not kalman.update(600, 450, confidence=1.0, gate_threshold_chi2=9.21)
+    assert np.array_equal(kalman.state, state_before)
+    assert np.array_equal(kalman.cov, covariance_before)
+    assert kalman.last_innovation_distance_sq > 9.21
+
+    assert np.allclose(kalman.cov, kalman.cov.T, atol=1e-6)
+    assert np.linalg.eigvalsh(kalman.cov).min() >= -1e-6
+
+
+def test_kinematic_prediction_and_latency_compensated_aimpoint():
+    kalman = KalmanFilter2D()
+    kalman.reset(320, 240)
+    kalman.state[:] = [320, 100, 20, 240, -50, 10]
+    assert kalman.predict_position(0.1) == pytest.approx((330.1, 235.05))
+
+    uncompensated = TrackingSystem(ctrl_config=ControllerConfig(
+        latency_compensation_s=0.0, feedforward_gain=0.0,
+    ))
+    compensated = TrackingSystem(ctrl_config=ControllerConfig(
+        latency_compensation_s=0.1, feedforward_gain=0.0,
+    ))
+    for tracker in (uncompensated, compensated):
+        tracker.kalman.state[:] = [320, 100, 0, 240, 0, 0]
+        tracker.kalman.is_initialized = True
+    detection = DetectionResult(True, 320, 240, confidence=1.0)
+    base = uncompensated._command_for_state(
+        CanonicalTrackingState.ACQUIRE, detection, 320, 240, 1 / 30,
+        frame_width=640, frame_height=480, apply_camera=False,
+    )
+    lead = compensated._command_for_state(
+        CanonicalTrackingState.ACQUIRE, detection, 320, 240, 1 / 30,
+        frame_width=640, frame_height=480, apply_camera=False,
+    )
+    assert base is not None and lead is not None
+    assert abs(base.pan_rate_deg_s) < 1e-6
+    assert lead.pan_rate_deg_s > 0.0
+
+
+def test_scenario_builds_burst_loss_and_latency_compensation():
+    raw = json.loads(json.dumps(DEFAULT_SCENARIO))
+    raw["disturbances"]["dropout"].update({
+        "burst_enabled": True, "mean_clear_s": 2.5, "mean_loss_s": 0.4,
+    })
+    raw["controller"]["latency_compensation_s"] = 0.075
+    tracker = tracker_from_scenario(Scenario(validate_scenario(raw)))
+    assert tracker.disturb_config.dropout_burst_enabled
+    assert tracker.disturb_config.dropout_mean_clear_s == 2.5
+    assert tracker.disturb_config.dropout_mean_loss_s == 0.4
+    assert tracker.ctrl_config.latency_compensation_s == 0.075

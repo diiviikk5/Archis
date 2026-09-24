@@ -76,3 +76,41 @@ def test_turbulence_controls_are_independent():
     warped = DisturbanceEngine(DisturbanceConfig(turbulence_warp_px=4.0))
     warped.update(0.1)
     assert not np.array_equal(warped.apply_disturbances_to_frame(frame), frame)
+
+
+def test_burst_dropout_is_seeded_repeatable_and_resettable():
+    config = DisturbanceConfig(
+        random_seed=834,
+        dropout_burst_enabled=True,
+        dropout_mean_clear_s=0.08,
+        dropout_mean_loss_s=0.06,
+    )
+    first, second = DisturbanceEngine(config), DisturbanceEngine(config)
+    first_sequence, second_sequence = [], []
+    for _ in range(180):
+        first.update(1 / 30)
+        second.update(1 / 30)
+        first_sequence.append(first.is_dropout_active())
+        second_sequence.append(second.is_dropout_active())
+
+    assert first_sequence == second_sequence
+    assert any(first_sequence) and not all(first_sequence)
+
+    first.reset()
+    replay = []
+    for _ in range(180):
+        first.update(1 / 30)
+        replay.append(first.is_dropout_active())
+    assert replay == first_sequence
+
+
+def test_scheduled_and_burst_dropout_share_one_status_api():
+    scheduled = DisturbanceEngine(DisturbanceConfig(
+        dropout_enabled=True, dropout_start_s=0.1, dropout_duration_s=0.2,
+    ))
+    scheduled.update(0.09)
+    assert not scheduled.is_dropout_active()
+    scheduled.update(0.02)
+    assert scheduled.is_dropout_active()
+    scheduled.update(0.2)
+    assert not scheduled.is_dropout_active()

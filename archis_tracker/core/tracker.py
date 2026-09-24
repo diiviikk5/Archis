@@ -202,18 +202,14 @@ class TrackingSystem:
         self._apply_beacon_code()
         self.target_manager.render_all_onto_viewport(canvas, self.camera.world_x, self.camera.world_y)
         self.current_frame = self.disturbances.apply_disturbances_to_frame(canvas)
-        dropout = (
-            self.disturb_config.dropout_enabled
-            and self.disturb_config.dropout_start_s <= self.sim_time
-            < self.disturb_config.dropout_start_s + self.disturb_config.dropout_duration_s
-        )
+        dropout = self.disturbances.is_dropout_active()
         if self.sensor_obscured or dropout:
             self.current_frame.fill(0)
 
         truth_x, truth_y = self.camera.world_to_viewport(self.primary_target.x, self.primary_target.y)
         self.last_truth = GroundTruthSample(
             truth_x, truth_y,
-            self.camera.is_point_in_fov(self.primary_target.x, self.primary_target.y)
+            bool(self.camera.is_point_in_fov(self.primary_target.x, self.primary_target.y))
             and not (self.sensor_obscured or dropout),
             str(self.primary_target.target_id),
         )
@@ -276,6 +272,13 @@ class TrackingSystem:
         self.latest_pred_x, self.latest_pred_y = pred_x, pred_y
         periodic_scan = packet.index % max(1, self.ctrl_config.periodic_full_scan_frames) == 0
         use_gate = self.state_machine.use_prediction_gate and not periodic_scan
+        # A periodic safety scan may search the whole image, but an unrelated
+        # bright candidate must still not be allowed to jump a confirmed
+        # estimate.  Disable this defensive filter gate only while acquiring
+        # or globally reacquiring a target.
+        filter_gate = self.state_machine.state in {
+            CanonicalTrackingState.TRACK, CanonicalTrackingState.COAST,
+        }
         detection = self.detector.detect(
             packet.image,
             predicted_pos=(pred_x, pred_y) if use_gate else None,
@@ -297,6 +300,27 @@ class TrackingSystem:
                     heatmap=detection.heatmap, heatmap_bbox=detection.heatmap_bbox,
                 )
 
+        measurement_accepted: bool | None = None
+        if detection.detected:
+            measurement_accepted = self.kalman.update(
+                detection.x,
+                detection.y,
+                detection.confidence,
+                gate_threshold_chi2=(
+                    self.det_config.kalman_gate_threshold_chi2 if filter_gate else None
+                ),
+            )
+            if not measurement_accepted:
+                detection = DetectionResult(
+                    False, gate_bbox=detection.gate_bbox,
+                    confidence=detection.confidence,
+                    peak_intensity=detection.peak_intensity,
+                    snr_db=detection.snr_db,
+                    algorithm_used=detection.algorithm_used,
+                    heatmap=detection.heatmap,
+                    heatmap_bbox=detection.heatmap_bbox,
+                )
+
         previous_state = self.state_machine.state
         canonical = self.state_machine.update(detection.detected, dt)
         self.state_timer = self.state_machine.state_elapsed_s
@@ -305,9 +329,6 @@ class TrackingSystem:
             self._ever_acquired = True
         if canonical == CanonicalTrackingState.REACQUIRE and previous_state != canonical:
             self.controller.start_search(self.camera.pan_deg, self.camera.tilt_deg)
-
-        if detection.detected:
-            self.kalman.update(detection.x, detection.y, detection.confidence)
 
         command = self._command_for_state(
             canonical, detection, pred_x, pred_y, dt,
@@ -342,6 +363,13 @@ class TrackingSystem:
             "identity_status": None if self.code_lock is None else self.code_lock.status,
             "identity_correlation": None if self.code_lock is None else self.code_lock.best_correlation,
             "truth_available": truth is not None,
+            "innovation_distance_sq": (
+                self.kalman.last_innovation_distance_sq
+                if measurement_accepted is not None else None
+            ),
+            "measurement_accepted": measurement_accepted,
+            "innovation_gate_enabled": filter_gate,
+            "latency_compensation_s": self.ctrl_config.latency_compensation_s,
         }
         result = TrackingResult(packet, canonical, candidates, selected, estimate, command, elapsed_ms, diagnostics)
         self.last_detection = detection
@@ -358,6 +386,11 @@ class TrackingSystem:
             target_x = detection.x if detection.detected else pred_x
             target_y = detection.y if detection.detected else pred_y
             velocity_x, velocity_y = self.kalman.velocity
+            acceleration_x, acceleration_y = self.kalman.acceleration
+            lead_s = float(np.clip(self.ctrl_config.latency_compensation_s, 0.0, 2.0))
+            if lead_s > 0.0 and self.kalman.is_initialized:
+                target_x += velocity_x * lead_s + 0.5 * acceleration_x * lead_s * lead_s
+                target_y += velocity_y * lead_s + 0.5 * acceleration_y * lead_s * lead_s
             px_per_deg_x = frame_width / self.cam_config.fov_x_deg
             px_per_deg_y = frame_height / self.cam_config.fov_y_deg
             camera_vx = self.camera.pan_velocity_deg_s * px_per_deg_x if apply_camera else 0.0

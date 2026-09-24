@@ -1,5 +1,6 @@
 """Desktop pacing and viewport integration checks without a visible window."""
 import os
+import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -29,13 +30,18 @@ def qt_app():
     yield app
 
 
-def test_playback_preserves_sensor_period(window, monkeypatch):
+def test_playback_preserves_sensor_period(window, monkeypatch, qt_app):
     periods = []
     monkeypatch.setattr(window.tracker, "step", lambda dt: periods.append(dt))
     window.is_running = True
     for index, scale in enumerate((0.25, 0.5, 1.0)):
         window.tracking_interface.playback_speed.setCurrentIndex(index)
         window._simulation_tick()
+        deadline = time.monotonic() + 1.0
+        while window.worker_busy and time.monotonic() < deadline:
+            qt_app.processEvents()
+            time.sleep(0.001)
+        assert not window.worker_busy
         assert window.sim_timer.interval() == round(
             1000 / window.tracker.cam_config.update_rate_hz / scale
         )
