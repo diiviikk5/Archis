@@ -83,6 +83,8 @@ def load_and_apply_preset(tracker, path: str | Path) -> LoadedPreset:
         "intensity": _number(target, "intensity", 1, 255),
         "pan_speed": _number(camera, "max_pan_speed_deg_s", 0.1, 10),
         "tilt_speed": _number(camera, "max_tilt_speed_deg_s", 0.1, 10),
+        "inertial_stabilization": _boolean(camera, "inertial_stabilization_enabled"),
+        "inertial_sensor_noise": _number(camera, "inertial_sensor_noise_px", 0, 20),
         "fov_x": _number(camera, "fov_x_deg", 0.1, 180),
         "fov_y": _number(camera, "fov_y_deg", 0.1, 180),
         "atmosphere": _enum(disturbances, "atmospheric_condition", AtmosphericCondition),
@@ -122,6 +124,9 @@ def load_and_apply_preset(tracker, path: str | Path) -> LoadedPreset:
         if values[key] is not None:
             setattr(tracker.cam_config, attr, values[key])
     tracker.camera.set_rate_limits(values["pan_speed"], values["tilt_speed"])
+    tracker.cam_config.inertial_stabilization_enabled = bool(values["inertial_stabilization"])
+    if values["inertial_sensor_noise"] is not None:
+        tracker.cam_config.inertial_sensor_noise_px = values["inertial_sensor_noise"]
 
     disturbance_map = {
         "atmosphere": "atmospheric_condition",

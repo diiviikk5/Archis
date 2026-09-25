@@ -186,10 +186,15 @@ class ScenarioSummaryWidget(NavigationWidget):
             f"{tracker.detector.spot_scale_px:.1f}px; R-cal {detector.measurement_noise_calibration:g}; "
             f"CodeLock {code}"
         )
+        stabilizer = (
+            f"ON (σ{camera.inertial_sensor_noise_px:g}px)"
+            if camera.inertial_stabilization_enabled else "off"
+        )
         camera_text = (
             f"{camera.viewport_width}×{camera.viewport_height} @{camera.update_rate_hz:g}Hz; "
             f"FOV {camera.fov_x_deg:g}°×{camera.fov_y_deg:g}°; "
-            f"rate {camera.max_pan_speed_deg_s:g}/{camera.max_tilt_speed_deg_s:g}°/s"
+            f"rate {camera.max_pan_speed_deg_s:g}/{camera.max_tilt_speed_deg_s:g}°/s; "
+            f"inertial stabilizer {stabilizer}"
         )
         control_text = (
             f"{'Autonomous' if tracker.is_autonomous_tracking else 'Manual'}; "

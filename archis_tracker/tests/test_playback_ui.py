@@ -119,6 +119,13 @@ def test_navigation_summary_refreshes_after_configuration_changes(window):
     assert "TX range 4250 m" in window.scenario_summary.field_text("Terminals")
 
 
+def test_navigation_summary_discloses_active_inertial_stabilization(window):
+    window.tracker.cam_config.inertial_stabilization_enabled = True
+    window.tracker.cam_config.inertial_sensor_noise_px = 0.5
+    window.scenario_summary.refresh()
+    assert "inertial stabilizer ON (σ0.5px)" in window.scenario_summary.field_text("Camera")
+
+
 def test_navigation_summary_collapses_without_reserving_empty_space(window):
     summary = window.scenario_summary
     summary.setCompacted(True)

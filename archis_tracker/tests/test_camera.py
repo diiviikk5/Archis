@@ -42,3 +42,27 @@ def test_coordinate_transforms():
     wx, wy = cam.viewport_to_world(320.0, 240.0)
     assert abs(wx - 1000.0) < 1e-4
     assert abs(wy - 1000.0) < 1e-4
+
+
+def test_inertial_stabilization_counters_platform_without_unbounded_gimbal_motion():
+    cam = VirtualCamera()
+    cam.jitter_offset_x = 15.0
+    cam.platform_offset_x = 12.0
+    cam.jitter_offset_y = -10.0
+    cam.platform_offset_y = 6.0
+    cam.update_world_position()
+    assert cam.world_x == 1027.0
+    assert cam.world_y == 996.0
+
+    cam.apply_inertial_stabilization(27.0, -4.0)
+    assert cam.world_x == pytest.approx(1000.0)
+    assert cam.world_y == pytest.approx(1000.0)
+    assert cam.pan_deg == cam.tilt_deg == 0.0
+    assert abs(cam.gimbal.fsm_pan_deg) <= 0.5
+    assert abs(cam.gimbal.fsm_tilt_deg) <= 0.5
+
+    cam.apply_inertial_stabilization(1000.0, -1000.0)
+    assert cam.gimbal.fsm_pan_deg == -0.5
+    assert cam.gimbal.fsm_tilt_deg == 0.5
+    cam.reset()
+    assert cam.gimbal.fsm_pan_deg == cam.gimbal.fsm_tilt_deg == 0.0

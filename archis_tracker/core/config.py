@@ -74,6 +74,8 @@ class CameraConfig:
     max_pan_speed_deg_s: float = 5.0   # 5-10 °/s, default 5
     max_tilt_speed_deg_s: float = 5.0  # 5-10 °/s, default 5
     max_acceleration_deg_s2: float = 25.0
+    inertial_stabilization_enabled: bool = False
+    inertial_sensor_noise_px: float = 0.5
     is_monochrome: bool = True
     color_map: str = "gray"  # "gray", "inferno", "viridis"
 

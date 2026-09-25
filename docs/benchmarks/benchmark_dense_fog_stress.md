@@ -1,6 +1,6 @@
 # Heavy Atmospheric Turbulence Benchmark
 
-<!-- generated-by: scripts/generate_benchmark_evidence.py engine-fingerprint: a709e0f7501437d006e000b7e253f0481b2972cd73cd741b08294bc2491bfeb3 -->
+<!-- generated-by: scripts/generate_benchmark_evidence.py engine-fingerprint: ad8cd198e6eefbf589b795f8c5b69f79dc60663bd270a16797f9c4582a0d227a -->
 
 Generated from three 60-second runs (1,800 frames each) using seeds 26169–26171.
 
@@ -11,7 +11,7 @@ Generated from three 60-second runs (1,800 frames each) using seeds 26169–2617
 | Pointing RMSE | ≤ 10 px | 3.038–3.083 px | PASS |
 | Target loss | < 5% | 0.00% | PASS |
 | Worst re-acquisition | ≤ 1.0 s when applicable | n/a | PASS |
-| Conservative throughput (1000 / p95 latency) | ≥ 20 FPS | 14.8–23.8 FPS | 2/3 on this host |
+| Conservative throughput (1000 / p95 latency) | ≥ 20 FPS | 28.4–31.8 FPS | 3/3 on this host |
 
 Deterministic accuracy/control verdict: **PASS**. Throughput is reported separately because it depends on the host. A scenario is not claimed as a universal strict pass from these development-machine timings.
 

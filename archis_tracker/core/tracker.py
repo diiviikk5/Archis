@@ -214,7 +214,14 @@ class TrackingSystem:
         (jitter_x, jitter_y), (platform_x, platform_y) = self.disturbances.update(dt)
         self.camera.jitter_offset_x, self.camera.jitter_offset_y = jitter_x, jitter_y
         self.camera.platform_offset_x, self.camera.platform_offset_y = platform_x, platform_y
-        self.camera.update_world_position()
+        if self.cam_config.inertial_stabilization_enabled:
+            measured_x, measured_y = self.disturbances.measure_platform_offset(
+                jitter_x + platform_x, jitter_y + platform_y,
+                self.cam_config.inertial_sensor_noise_px,
+            )
+            self.camera.apply_inertial_stabilization(measured_x, measured_y)
+        else:
+            self.camera.update_world_position()
         self.world_snapshot = self.world_model.update(
             dt, self.camera, self.primary_target, self.secondary_targets
         )

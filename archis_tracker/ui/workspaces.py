@@ -311,6 +311,10 @@ class ReviewInterface(QWidget):
         def add_action(row, key, button, tooltip):
             button.setToolTip(tooltip)
             button.setMinimumHeight(42)
+            # Qt may distribute a row before Fluent has finished its page
+            # transition. Keep each action at least as wide as its label even
+            # during that intermediate layout pass.
+            button.setMinimumWidth(button.sizeHint().width())
             button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             row.addWidget(button, 1)
             self.action_buttons[key] = button
