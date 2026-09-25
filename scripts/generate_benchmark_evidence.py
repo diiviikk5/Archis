@@ -346,6 +346,8 @@ def verify() -> list[str]:
             errors.append("benchmark matrix must contain exactly five presets across three fixed seeds")
         if any(row.get("frames") != FRAMES or row.get("accuracy_basis") != "ground_truth" for row in rows):
             errors.append("every matrix run must contain 1,800 truth-scored frames")
+        if any(row.get("passed") is not True for row in rows):
+            errors.append("every matrix run must pass the configured acquisition, accuracy, loss, reacquisition and FPS gates")
 
     for preset in PRESETS:
         report_dir = OUTPUT / preset

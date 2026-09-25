@@ -41,6 +41,7 @@ class DisturbanceEngine:
         self.time_elapsed: float = 0.0
         self.rng = np.random.default_rng(self.config.random_seed)
         self._dropout_rng = np.random.default_rng(self.config.random_seed ^ 0x4C4F5353)
+        self._inertial_rng = np.random.default_rng(self.config.random_seed ^ 0x494D5531)
         self._burst_dropout_active = False
         self._coordinate_grids: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
         self._turbulence_bases: dict[tuple[int, int], tuple[np.ndarray, ...]] = {}
@@ -62,6 +63,7 @@ class DisturbanceEngine:
         self.time_elapsed = 0.0
         self.rng = np.random.default_rng(self.config.random_seed)
         self._dropout_rng = np.random.default_rng(self.config.random_seed ^ 0x4C4F5353)
+        self._inertial_rng = np.random.default_rng(self.config.random_seed ^ 0x494D5531)
         self._burst_dropout_active = False
         self._coordinate_grids.clear()
         self._turbulence_bases.clear()
@@ -155,6 +157,14 @@ class DisturbanceEngine:
             
         return (jitter_x, jitter_y), (plat_x, plat_y)
 
+    def measure_platform_offset(self, actual_x: float, actual_y: float, noise_px: float) -> tuple[float, float]:
+        """Simulate a seeded inertial attitude readout independent of beacon truth."""
+        sigma = max(0.0, float(noise_px))
+        if sigma == 0.0:
+            return float(actual_x), float(actual_y)
+        noise = self._inertial_rng.normal(0.0, sigma, 2)
+        return float(actual_x + noise[0]), float(actual_y + noise[1])
+
     def _update_burst_dropout(self, dt: float) -> None:
         """Advance a deterministic two-state continuous-time loss process."""
         if not self.config.dropout_burst_enabled:
@@ -239,16 +249,29 @@ class DisturbanceEngine:
             grid_x, grid_y = self._grid(h, w)
             t = self.time_elapsed
             sin_a, cos_a, sin_b, cos_b, sin_c, cos_c, sin_d, cos_d = self._turbulence_basis(h, w)
-            dx = warp_px * (
-                0.65 * (sin_a * np.cos(4.1 * t) + cos_a * np.sin(4.1 * t))
-                + 0.35 * (sin_b * np.cos(2.3 * t) - cos_b * np.sin(2.3 * t))
+            # Compose the same cached phase screens in OpenCV's float32 SIMD
+            # kernels. NumPy's chained expression allocated a dozen full-size
+            # temporary arrays for every frame and dominated turbulent runs.
+            dx = cv2.addWeighted(
+                sin_a, 0.65 * warp_px * np.cos(4.1 * t),
+                cos_a, 0.65 * warp_px * np.sin(4.1 * t), 0.0,
             )
-            dy = warp_px * (
-                0.65 * (cos_c * np.cos(3.7 * t) - sin_c * np.sin(3.7 * t))
-                + 0.35 * (cos_d * np.cos(2.9 * t) - sin_d * np.sin(2.9 * t))
+            dx_secondary = cv2.addWeighted(
+                sin_b, 0.35 * warp_px * np.cos(2.3 * t),
+                cos_b, -0.35 * warp_px * np.sin(2.3 * t), 0.0,
             )
-            map_x = (grid_x + dx).astype(np.float32, copy=False)
-            map_y = (grid_y + dy).astype(np.float32, copy=False)
+            cv2.add(dx, dx_secondary, dst=dx)
+            dy = cv2.addWeighted(
+                cos_c, 0.65 * warp_px * np.cos(3.7 * t),
+                sin_c, -0.65 * warp_px * np.sin(3.7 * t), 0.0,
+            )
+            dy_secondary = cv2.addWeighted(
+                cos_d, 0.35 * warp_px * np.cos(2.9 * t),
+                sin_d, -0.35 * warp_px * np.sin(2.9 * t), 0.0,
+            )
+            cv2.add(dy, dy_secondary, dst=dy)
+            map_x = cv2.add(grid_x, dx)
+            map_y = cv2.add(grid_y, dy)
             img = cv2.remap(
                 img, map_x, map_y,
                 cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT101,

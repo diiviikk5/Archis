@@ -1,6 +1,7 @@
 """Unit tests for Noise, Atmospheric Disturbance, and Jitter."""
 import pytest
 import numpy as np
+import cv2
 from archis_tracker.core.disturbances import DisturbanceEngine
 from archis_tracker.core.config import DisturbanceConfig, AtmosphericCondition, PlatformMotionType
 
@@ -114,3 +115,36 @@ def test_scheduled_and_burst_dropout_share_one_status_api():
     assert scheduled.is_dropout_active()
     scheduled.update(0.2)
     assert not scheduled.is_dropout_active()
+
+
+def test_inertial_measurements_are_seeded_and_do_not_advance_image_noise_rng():
+    config = DisturbanceConfig(random_seed=91, enable_gaussian_noise=True)
+    measured = DisturbanceEngine(config)
+    baseline = DisturbanceEngine(config)
+    first = measured.measure_platform_offset(15.0, -4.0, 0.5)
+    assert first != (15.0, -4.0)
+    frame = np.full((32, 32), 100, dtype=np.uint8)
+    assert np.array_equal(
+        measured.apply_disturbances_to_frame(frame),
+        baseline.apply_disturbances_to_frame(frame),
+    )
+    measured.reset()
+    assert measured.measure_platform_offset(15.0, -4.0, 0.5) == first
+
+
+def test_optimized_turbulence_matches_reference_float32_phase_screen():
+    engine = DisturbanceEngine(DisturbanceConfig(random_seed=17, turbulence_warp_px=3.5))
+    engine.update(1 / 30)
+    frame = np.arange(120 * 160, dtype=np.uint32).reshape(120, 160).astype(np.uint8)
+    grid_x, grid_y = engine._grid(*frame.shape)
+    sin_a, cos_a, sin_b, cos_b, sin_c, cos_c, sin_d, cos_d = engine._turbulence_basis(*frame.shape)
+    t, warp = engine.time_elapsed, 3.5
+    dx = warp * (0.65 * (sin_a * np.cos(4.1 * t) + cos_a * np.sin(4.1 * t))
+                 + 0.35 * (sin_b * np.cos(2.3 * t) - cos_b * np.sin(2.3 * t)))
+    dy = warp * (0.65 * (cos_c * np.cos(3.7 * t) - sin_c * np.sin(3.7 * t))
+                 + 0.35 * (cos_d * np.cos(2.9 * t) - sin_d * np.sin(2.9 * t)))
+    reference = cv2.remap(frame.astype(np.float32),
+                          (grid_x + dx).astype(np.float32), (grid_y + dy).astype(np.float32),
+                          cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT101)
+    actual = engine.apply_disturbances_to_frame(frame)
+    assert np.array_equal(actual, np.clip(reference, 0, 255).astype(np.uint8))

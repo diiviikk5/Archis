@@ -8,6 +8,7 @@ It combines a polished PyQt/Fluent simulator with a deterministic tracking and e
 
 - Configurable 2000×2000 virtual world, beacon shapes and trajectories.
 - Fixed-step, seeded noise, atmosphere, platform motion, jitter, scheduled dropout, and deterministic burst loss.
+- Optional seeded inertial attitude sensing and bounded fast-mirror stabilization for the platform-jitter scenario; this assisted mode is distinct from unassisted pan/tilt tracking.
 - Explicit `SEARCH → ACQUIRE → TRACK → COAST → REACQUIRE` state machine.
 - Six-state acceleration-aware Kalman estimation with calibrated FWHM/aperture-SNR measurement noise, Joseph covariance correction, and catastrophic-jump rejection.
 - Per-detection FWHM, aperture/peak SNR, sensor-edge clipping, and saturation evidence in CSV/JSON/HTML reports.
@@ -23,6 +24,8 @@ It combines a polished PyQt/Fluent simulator with a deterministic tracking and e
 - PyInstaller one-folder Windows build plus portable ZIP and Inno Setup installer workflow.
 
 `HYBRID` is the production/default detector because it combines robust classical proposals with NanoSpot evidence and temporal checks. `AI_ONNX` remains available as an experimental, deliberately conservative AI-only ablation; it is not the recommended tracking mode and its lower recall must not be presented as production performance.
+
+The current 14-page [technical report](docs/technical_report/FSOC_Coarse_Alignment_Technical_Report_Rev5.pdf) documents the architecture, methods, test protocol, measured results, limitations, and future work.
 
 ## Quick start
 
@@ -131,6 +134,7 @@ Use `scintillation_model: "lognormal"` with `scintillation_log_std` for the comp
 | Estimator safety | Joseph-form covariance correction and an outlier sanity gate | Maintain numerical stability and reject implausible jumps |
 | Motion compensation | Optional position/velocity/acceleration lead for configured latency | Evaluate delayed sensor and actuator pipelines |
 | Disturbance testing | Seeded turbulence, burst loss, and isolated random streams | Repeat stress tests without changing unrelated noise |
+| Platform stabilization | Optional seeded inertial attitude readout and bounded fast-mirror correction | Reject high-frequency jitter without changing pedestal rate or acceleration limits |
 | Performance timing | Mean, p50, p95, and maximum latency; conservative FPS uses `1000/p95` | Show both typical and slow-frame processing cost |
 | Validation | Optical-quality sweeps and a mechanically bounded velocity envelope | Keep calibration and speed claims reproducible |
 
@@ -140,15 +144,15 @@ The latest verification run contains 15 runs: five 60-second, 30 Hz scenarios ac
 
 | Scenario | Acquisition | Centroid RMSE | Pointing RMSE | Worst loss | Reacquisition | Accuracy/control verdict | Host conservative FPS (1000/p95) |
 | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: |
-| Nominal LEO | 0.10 s | 0.023–0.029 px | 2.866–2.894 px | 0.00% | n/a | Pass | 90.5–97.4 |
-| Evasive target | 0.10 s | 0.029–0.031 px | 2.972–3.184 px | 0.00% | n/a | Pass | 93.6–96.5 |
-| Heavy turbulence | 0.10 s | **2.554–2.589 px** | **3.038–3.083 px** | 0.00% | n/a | Pass | **14.8–23.8** |
-| Cloud dropout | 0.10 s | 0.099–0.102 px | 0.958–0.966 px | 0.50% | 0.30 s | Pass | 78.7–82.1 |
-| Platform jitter | 0.10 s | 0.038–0.094 px | 13.064–13.233 px | 0.06–0.17% | 0.033 s | **Pointing gate miss** | 84.7–95.6 |
+| Nominal LEO | 0.10 s | 0.023–0.029 px | 2.866–2.894 px | 0.00% | n/a | Pass | 96.7–187.9 |
+| Evasive target | 0.10 s | 0.029–0.031 px | 2.972–3.184 px | 0.00% | n/a | Pass | 89.9–169.2 |
+| Heavy turbulence | 0.10 s | 2.554–2.589 px | 3.038–3.083 px | 0.00% | n/a | Pass | 28.4–31.8 |
+| Cloud dropout | 0.10 s | 0.099–0.102 px | 0.958–0.966 px | 0.50% | 0.30 s | Pass | 66.8–144.4 |
+| Platform jitter (inertial stabilizer enabled) | 0.10 s | 0.025–0.037 px | 1.681–1.687 px | 0.00% | n/a | Pass | 77.2–165.8 |
 
-Twelve of the 15 runs passed every deterministic accuracy/control gate; the three misses were all the platform-jitter pointing gate. On the recorded development host, 14 of 15 runs passed the conservative ≥20 FPS gate; one heavy-turbulence run had p95 latency corresponding to 14.8 FPS. Heavy turbulence is therefore **not** claimed as a universal strict pass. Platform jitter demonstrates why centroid accuracy and closed-loop pointing accuracy are reported separately: detection remained accurate, but camera offset exceeded the strict 10 px gate.
+All 15 runs pass the configured accuracy, pointing, loss, reacquisition and conservative ≥20 FPS gates on the recorded Linux development host. Platform-jitter pointing improved from 13.064–13.233 px in the previous unstabilized matrix to 1.681–1.687 px with the explicitly configured inertial sensor and bounded fast-mirror correction; this is an assisted virtual-camera result, not an unassisted pan-tilt claim. Turbulence phase-screen composition was accelerated without changing the recorded accuracy fingerprints. FPS remains host- and load-dependent: these results do not establish throughput on the Windows reference machine or unseen judge media.
 
-The seven files under [`docs/benchmarks`](docs/benchmarks) are generated from this matrix and a real sensor-noise sweep, rather than hand-written tables. CI and the Windows release build run `python scripts/generate_benchmark_evidence.py --verify`; it fails if engine/preset/model inputs change, if a generated report is edited, if the matrix does not contain exactly 15 truth-scored runs, or if per-frame reports use an old schema.
+The seven files under [`docs/benchmarks`](docs/benchmarks) are generated from this matrix and a real sensor-noise sweep, rather than hand-written tables. CI and the Windows release build run `python scripts/generate_benchmark_evidence.py --verify`; it fails if engine/preset/model inputs change, if a generated report is edited, if any of the 15 truth-scored matrix runs misses a configured gate, or if per-frame reports use an old schema.
 
 ## Tests
 
@@ -156,30 +160,30 @@ The seven files under [`docs/benchmarks`](docs/benchmarks) are generated from th
 python -m pytest -q
 ```
 
-The unified suite currently contains **110 passing tests**. The count includes every parameterized case and covers acquisition at the frame center/edges/corners, truth isolation, repeatability, state transitions, CodeLock, controller bounds, preset migration, native-resolution media, truth sidecars, metrics, headless UI startup, estimator outlier rejection, calibrated optical uncertainty, scale-relative detection, Gamma–Gamma repeatability, p95 throughput, velocity bounds, latency compensation, deterministic burst loss, report export, the explicit 3D two-terminal world, world/sensor evidence capture, and the live active-configuration sidebar.
+The unified suite currently contains **116 passing tests**. The count includes every parameterized case and covers acquisition at the frame center/edges/corners, truth isolation, repeatability, state transitions, CodeLock, controller bounds, preset migration, native-resolution media, truth sidecars, metrics, headless UI startup, estimator outlier rejection, calibrated optical uncertainty, scale-relative detection, Gamma–Gamma repeatability, p95 throughput, velocity bounds, latency compensation, deterministic burst loss, report export, explicit 3D two-terminal geometry, bounded inertial stabilization, phase-screen equivalence, and the live active-configuration sidebar.
 
 | Test module | Passing cases | Coverage |
 | --- | ---: | --- |
 | `test_ai_detector.py` | 14 | Real NanoSpot inference, failures, provenance, heatmaps, decoys |
 | `test_association.py` | 2 | Mahalanobis association and decoy rejection |
-| `test_camera.py` | 3 | Camera geometry, rate limits, coordinate transforms |
+| `test_camera.py` | 4 | Camera geometry, rate limits, coordinate transforms, bounded stabilization |
 | `test_controller.py` | 2 | PID direction and autonomous search spiral |
 | `test_demo_evidence.py` | 2 | Rendered geometry and detector-robustness evidence |
 | `test_detector.py` | 2 | Clean and noisy optical-beacon detection |
-| `test_disturbances.py` | 7 | Noise, atmosphere, jitter, turbulence, repeatable burst loss |
+| `test_disturbances.py` | 9 | Noise, atmosphere, jitter, phase-screen equivalence, seeded inertial readout, repeatable burst loss |
 | `test_external_video.py` | 2 | Native external frames, BGRA images, sequence ordering |
 | `test_gimbal.py` | 2 | Gimbal dynamics and gyro telemetry |
 | `test_optics.py` | 3 | FOV intrinsics and angular geometry |
 | `test_optical_validation.py` | 9 | FWHM/SNR/saturation sweeps, calibrated Kalman noise, adaptive geometry, Gamma–Gamma, latency and velocity bounds |
 | `test_performance_v2.py` | 5 | Truth-based reports, honest truth-free metrics, fingerprints |
-| `test_playback_ui.py` | 13 | Worker pacing, viewport, overlays, capture, split/judge views, audit layout, configuration sidebar and chart legends |
-| `test_presets.py` | 3 | Live preset application, atomic rejection, independent limits |
+| `test_playback_ui.py` | 14 | Worker pacing, viewport, overlays, capture, split/judge views, audit layout, configuration sidebar and chart legends |
+| `test_presets.py` | 5 | Live preset application, atomic rejection, independent limits, stabilization migration |
 | `test_session_report.py` | 1 | Automatic CSV/JSON/HTML session evidence |
 | `test_target.py` | 10 | Shapes, six trajectories, continuity, bounce, zero timestep |
 | `test_telemetry.py` | 5 | Empty runs, loss limits, reacquisition, aggregate telemetry, conservative p95 throughput |
 | `test_unified_core.py` | 19 | Contracts, state machine, seeds, truth, CodeLock, new estimator features |
 | `test_world_model.py` | 6 | Explicit terminal poses, relative geometry, physical velocity, decoys, isolation |
-| **Total** | **110** | **All passing** |
+| **Total** | **116** | **All passing** |
 
 <details>
 <summary>Complete passing test inventory</summary>
@@ -201,19 +205,20 @@ The unified suite currently contains **110 passing tests**. The count includes e
 - `test_inference_failure_is_explicit`
 - `test_ai_gate_heatmap_uses_sensor_coordinates`
 
-#### Association, camera, controller, and detector — 9
+#### Association, camera, controller, and detector — 10
 
 - `test_mahalanobis_gating_selects_closest_statistical_candidate`
 - `test_decoy_rejection_outside_gate`
 - `test_camera_dimensions_and_fov`
 - `test_camera_pan_tilt_rate_limiting`
 - `test_coordinate_transforms`
+- `test_inertial_stabilization_counters_platform_without_unbounded_gimbal_motion`
 - `test_pid_error_convergence`
 - `test_search_spiral`
 - `test_beacon_detection_clean`
 - `test_detection_under_gaussian_noise`
 
-#### Disturbances — 7
+#### Disturbances — 9
 
 - `test_image_noise_injections`
 - `test_camera_jitter_and_platform_bounds`
@@ -222,6 +227,8 @@ The unified suite currently contains **110 passing tests**. The count includes e
 - `test_turbulence_controls_are_independent`
 - `test_burst_dropout_is_seeded_repeatable_and_resettable`
 - `test_scheduled_and_burst_dropout_share_one_status_api`
+- `test_inertial_measurements_are_seeded_and_do_not_advance_image_noise_rng`
+- `test_optimized_turbulence_matches_reference_float32_phase_screen`
 
 #### Demonstration evidence — 2
 
@@ -247,7 +254,7 @@ The unified suite currently contains **110 passing tests**. The count includes e
 - `test_identical_seed_runs_have_identical_report_fingerprint`
 - `test_session_writes_csv_json_and_readable_report`
 
-#### Desktop playback and active configuration — 13
+#### Desktop playback and active configuration — 14
 
 - `test_playback_preserves_sensor_period`
 - `test_viewport_uses_actual_frame_dimensions`
@@ -256,6 +263,7 @@ The unified suite currently contains **110 passing tests**. The count includes e
 - `test_turbulence_controls_update_live_configuration`
 - `test_navigation_summary_shows_live_configuration`
 - `test_navigation_summary_refreshes_after_configuration_changes`
+- `test_navigation_summary_discloses_active_inertial_stabilization`
 - `test_navigation_summary_collapses_without_reserving_empty_space`
 - `test_all_chart_legends_are_below_the_plot_area`
 - `test_split_world_sensor_and_judge_modes_keep_visual_context`
@@ -263,11 +271,13 @@ The unified suite currently contains **110 passing tests**. The count includes e
 - `test_review_has_empty_state_and_refreshes_on_navigation`
 - `test_review_actions_fit_minimum_and_default_window_width`
 
-#### Presets — 3
+#### Presets — 5
 
 - `test_bundled_preset_applies_to_live_subsystems`
 - `test_invalid_preset_is_rejected_before_mutation`
 - `test_pan_and_tilt_limits_are_applied_independently`
+- `test_platform_jitter_preset_enables_bounded_stabilization_and_other_presets_reset_it`
+- `test_platform_jitter_schema_migration_retains_inertial_configuration`
 
 #### Targets — 10
 

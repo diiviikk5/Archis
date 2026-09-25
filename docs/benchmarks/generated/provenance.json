@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-09-24T07:42:03.347503+00:00",
+  "generated_at_utc": "2026-09-25T01:39:02.373352+00:00",
   "application_version": "2.0.0",
-  "engine_fingerprint": "a709e0f7501437d006e000b7e253f0481b2972cd73cd741b08294bc2491bfeb3",
-  "git_head_when_generated": "36bf1ee96c04cba65186b3dd39d869f996ee18bd",
+  "engine_fingerprint": "ad8cd198e6eefbf589b795f8c5b69f79dc60663bd270a16797f9c4582a0d227a",
+  "git_head_when_generated": "01434994f7dde85b0edb4446e1f441476e985102",
   "benchmark_frames_per_run": 1800,
   "seeds": [
     26169,

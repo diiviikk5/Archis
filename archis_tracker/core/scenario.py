@@ -25,6 +25,7 @@ DEFAULT_SCENARIO: dict[str, Any] = {
     "camera": {
         "viewport_px": [640, 480], "fov_deg": [4.0, 3.0], "update_hz": 30.0,
         "max_rate_deg_s": [5.0, 5.0], "max_acceleration_deg_s2": 25.0,
+        "inertial_stabilization_enabled": False, "inertial_sensor_noise_px": 0.5,
     },
     "world": {
         "size_px": [2000, 2000], "star_count": 250,
@@ -123,6 +124,8 @@ def validate_scenario(raw: Any) -> dict[str, Any]:
     _pair(camera.get("fov_deg"), "camera.fov_deg", 0.01, 180)
     _pair(camera.get("max_rate_deg_s"), "camera.max_rate_deg_s", 0.1, 20)
     _number(camera.get("max_acceleration_deg_s2", 25), "camera.max_acceleration_deg_s2", 0.1, 1000)
+    _boolean_value(camera.get("inertial_stabilization_enabled", False), "camera.inertial_stabilization_enabled")
+    _number(camera.get("inertial_sensor_noise_px", 0.5), "camera.inertial_sensor_noise_px", 0, 20)
     _number(camera.get("update_hz"), "camera.update_hz", 1, 240)
     world_size = _pair(world.get("size_px"), "world.size_px", 640, 100000)
     _integer(world.get("star_count", 250), "world.star_count", 0, 1_000_000)
@@ -211,6 +214,8 @@ def _migrate_legacy(raw: Mapping[str, Any]) -> dict[str, Any]:
         data["camera"]["fov_deg"] = [camera.get("fov_x_deg", 4.0), camera.get("fov_y_deg", 3.0)]
     if "max_pan_speed_deg_s" in camera or "max_tilt_speed_deg_s" in camera:
         data["camera"]["max_rate_deg_s"] = [camera.get("max_pan_speed_deg_s", 5.0), camera.get("max_tilt_speed_deg_s", 5.0)]
+    data["camera"]["inertial_stabilization_enabled"] = camera.get("inertial_stabilization_enabled", False)
+    data["camera"]["inertial_sensor_noise_px"] = camera.get("inertial_sensor_noise_px", 0.5)
     data["disturbances"].update({
         "atmosphere": disturbances.get("atmospheric_condition", "Clear"),
         "atmosphere_strength": disturbances.get("atmospheric_severity", 0.0),
@@ -327,6 +332,8 @@ def tracker_from_scenario(scenario: Scenario):
         update_rate_hz=float(camera["update_hz"]), max_pan_speed_deg_s=pan_rate,
         max_tilt_speed_deg_s=tilt_rate,
         max_acceleration_deg_s2=float(camera.get("max_acceleration_deg_s2", 25.0)),
+        inertial_stabilization_enabled=bool(camera.get("inertial_stabilization_enabled", False)),
+        inertial_sensor_noise_px=float(camera.get("inertial_sensor_noise_px", 0.5)),
     )
     env_config = EnvironmentConfig(
         screen_width=int(world["size_px"][0]), screen_height=int(world["size_px"][1]),

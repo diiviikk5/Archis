@@ -7,6 +7,10 @@
     "trajectory": "Straight Line",
     "speed": 50.0
   },
+  "camera": {
+    "inertial_stabilization_enabled": true,
+    "inertial_sensor_noise_px": 0.5
+  },
   "disturbances": {
     "enable_camera_jitter": true,
     "max_camera_jitter_px": 15.0,

@@ -5,6 +5,7 @@ import pytest
 
 from archis_tracker.core.config import AtmosphericCondition, MotionTrajectory
 from archis_tracker.core.presets import PresetError
+from archis_tracker.core.scenario import load_scenario, tracker_from_scenario
 from archis_tracker.core.tracker import TrackingSystem
 
 
@@ -43,3 +44,20 @@ def test_pan_and_tilt_limits_are_applied_independently():
     tracker.camera.apply_pan_tilt_command(20.0, 20.0, 0.1)
     assert tracker.camera.pan_velocity_deg_s == 7.0
     assert tracker.camera.tilt_velocity_deg_s == 4.0
+
+
+def test_platform_jitter_preset_enables_bounded_stabilization_and_other_presets_reset_it():
+    tracker = TrackingSystem()
+    tracker.load_preset("archis_tracker/presets/platform_jitter.json")
+    assert tracker.cam_config.inertial_stabilization_enabled
+    assert tracker.cam_config.inertial_sensor_noise_px == 0.5
+    tracker.load_preset("archis_tracker/presets/nominal_leo.json")
+    assert not tracker.cam_config.inertial_stabilization_enabled
+
+
+def test_platform_jitter_schema_migration_retains_inertial_configuration():
+    scenario = load_scenario("archis_tracker/presets/platform_jitter.json")
+    tracker = tracker_from_scenario(scenario)
+    assert scenario.data["camera"]["inertial_stabilization_enabled"] is True
+    assert tracker.cam_config.inertial_stabilization_enabled is True
+    assert tracker.cam_config.inertial_sensor_noise_px == 0.5
